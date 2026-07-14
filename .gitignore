@@ -7,4 +7,5 @@ SetFiles/**
 
 reports/**
 generated_configs/**
+validate_staging/**
 mt5_batch_runs.csv
