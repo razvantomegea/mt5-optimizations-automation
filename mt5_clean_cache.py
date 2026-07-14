@@ -32,9 +32,7 @@ def resolve_mt5_data_dir(*, terminal: str, mt5_data: str | None) -> Path:
     if explicit:
         return Path(explicit).resolve()
 
-    install_dir = Path(terminal).with_name("")
-    if terminal.lower().endswith("terminal64.exe"):
-        install_dir = Path(terminal).parent
+    install_dir = Path(terminal).parent
 
     appdata = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
     if not appdata.is_dir():
