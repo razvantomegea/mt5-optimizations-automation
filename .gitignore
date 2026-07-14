@@ -4,3 +4,7 @@ __pycache__/
 # EA-specific optimization grids — keep locally, never commit
 SetFiles/**
 !SetFiles/.gitkeep
+
+reports/**
+generated_configs/**
+mt5_batch_runs.csv
