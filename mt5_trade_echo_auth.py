@@ -20,7 +20,7 @@ def _fail(message: str, *, code: int = 1) -> NoReturn:
 def resolve_trade_echo_api_base() -> str:
     base = (
         os.environ.get("TRADEECHO_API_BASE_URL", "").strip()
-        or "https://trade-echo.com"
+        or "https://ea-sync-production.up.railway.app"
     )
     return base.rstrip("/")
 
