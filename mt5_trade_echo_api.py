@@ -9,6 +9,12 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from mt5_env import load_repo_env
+from mt5_trade_echo_auth import (
+    resolve_trade_echo_api_base,
+    resolve_trade_echo_user_id,
+)
+
 
 class TradeEchoOptimizerApi:
     def __init__(self, *, user_id: str, base_url: str) -> None:
@@ -82,7 +88,11 @@ class TradeEchoOptimizerApi:
         )
 
     def mark_worker_running(self, run_id: str) -> None:
-        self._request("POST", "/api/optimizer/worker/running", body={"runId": run_id})
+        self._request(
+            "POST",
+            "/api/optimizer/worker",
+            body={"op": "markRunning", "runId": run_id},
+        )
 
 
 def resolve_optimization_run_id() -> str:

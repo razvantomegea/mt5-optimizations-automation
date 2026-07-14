@@ -351,16 +351,16 @@ def write_workbook(
         )
 
         counts_start = ws_set.max_row + 3
-        for col, header in enumerate(COUNT_COLUMNS, start=1):
-            cell = ws_set.cell(row=counts_start, column=col, value=header)
-            cell.font = Font(bold=True)
-
-        row_cursor = counts_start + 1
-        chart_row = counts_start
+        row_cursor = counts_start
         rows_by_param: dict[str, list[CountRow]] = defaultdict(list)
         for row in counts_by_set[base_set]:
             rows_by_param[row.param].append(row)
         for param in set_params:
+            header_row = row_cursor
+            for col, header in enumerate(COUNT_COLUMNS, start=1):
+                cell = ws_set.cell(row=header_row, column=col, value=header)
+                cell.font = Font(bold=True)
+            row_cursor = header_row + 1
             param_rows = sorted(rows_by_param[param], key=_count_sort_key)
             first_row = row_cursor
             for count_row in param_rows:
@@ -368,9 +368,15 @@ def write_workbook(
                 ws_set.cell(row=row_cursor, column=6).number_format = "0.00%"
                 row_cursor += 1
             last_row = row_cursor - 1
-            anchor = f"{get_column_letter(len(matrix_headers) + 3)}{chart_row}"
-            _add_counts_chart(ws_set, title=param, first_row=first_row, last_row=last_row, anchor=anchor)
-            chart_row += 15
+            anchor = f"{get_column_letter(len(matrix_headers) + 3)}{header_row}"
+            _add_counts_chart(
+                ws_set,
+                title=param,
+                first_row=first_row,
+                last_row=last_row,
+                anchor=anchor,
+            )
+            row_cursor = last_row + 3
 
         _autosize(ws_set)
 
