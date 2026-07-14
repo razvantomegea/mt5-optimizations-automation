@@ -339,7 +339,7 @@ TRADEECHO_USER_ID=your-uuid-from-dashboard-setup
 MT5_EXPERT=MyEA.ex5
 ```
 
-Use the User ID shown on `/dashboard/optimizations` → **Local MT5 optimizer** setup card. Do not leave `TRADEECHO_USER_ID` empty; an unset value causes `TRADEECHO_USER_ID is not set` at startup.
+Use the User ID shown on `/dashboard/setup` → **MT5 Optimizations** tab. Do not leave `TRADEECHO_USER_ID` empty; an unset value causes `TRADEECHO_USER_ID is not set` at startup.
 
 Optional: `TRADEECHO_API_BASE_URL` (defaults to the production TradeEcho API host).
 
