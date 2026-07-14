@@ -99,6 +99,8 @@ def sync_favorite(
     repo_root: Path,
 ) -> tuple[list[Path] | None, str | None]:
     identity = _build_favorite_identity(favorite)
+    if not identity["symbol"]:
+        return None, describe_favorite_identity(identity)
     set_file = resolve_favorite_source_set_file(
         best_dir=best_dir,
         favorites_dir=favorites_dir,
@@ -135,8 +137,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Best directory not found: {best_dir}", file=sys.stderr)
         return 1
 
-    api = TradeEchoOptimizerApi.from_env()
-    favorites = api.get_favorites()
+    try:
+        api = TradeEchoOptimizerApi.from_env()
+        favorites = api.get_favorites()
+    except RuntimeError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
     if not favorites:
         print("No favorites found")
         return 0
@@ -144,12 +151,16 @@ def main(argv: list[str] | None = None) -> int:
     copied_count = 0
     skipped: list[str] = []
     for favorite in favorites:
-        copied, skip_label = sync_favorite(
-            favorite=favorite,
-            best_dir=best_dir,
-            favorites_dir=favorites_dir,
-            repo_root=PACKAGE_ROOT,
-        )
+        try:
+            copied, skip_label = sync_favorite(
+                favorite=favorite,
+                best_dir=best_dir,
+                favorites_dir=favorites_dir,
+                repo_root=PACKAGE_ROOT,
+            )
+        except FileNotFoundError as error:
+            skipped.append(str(error))
+            continue
         if skip_label:
             skipped.append(skip_label)
             continue

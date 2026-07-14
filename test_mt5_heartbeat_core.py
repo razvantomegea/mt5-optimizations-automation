@@ -6,8 +6,10 @@ from unittest.mock import ANY, MagicMock
 
 from mt5_heartbeat_core import (
     OptimizeConfig,
+    _resolve_run_id,
     build_optimize_argv,
     create_optimizer_heartbeat,
+    read_favorite_payload,
     read_start_payload,
 )
 
@@ -116,20 +118,57 @@ def test_process_favorite_command_moves_files() -> None:
             "id": "cmd-favorite",
             "action": "favorite",
             "payload": {
-                "setFile": r"C:\reports\Best\sets\foo.set",
+                "setFile": "foo.set",
                 "symbol": "EURUSD",
             },
         }
     )
 
     run_favorite.assert_called_with(
-        r"C:\reports\Best\sets\foo.set",
+        "foo.set",
         "EURUSD",
         False,
     )
     worker_store.mark_command_done.assert_called_with(
         command_id="cmd-favorite",
         status="done",
+    )
+
+
+def test_read_favorite_payload_normalizes_symbol_before_validate() -> None:
+    set_file, symbol = read_favorite_payload(
+        {"setFile": "foo.set", "symbol": "eurusd"},
+    )
+    assert set_file == "foo.set"
+    assert symbol == "EURUSD"
+
+
+def test_read_favorite_payload_rejects_path_like_set_file() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="valid setFile"):
+        read_favorite_payload(
+            {"setFile": r"C:\reports\Best\sets\foo.set", "symbol": "EURUSD"},
+        )
+
+
+def test_resolve_run_id_reuses_payload_on_resume() -> None:
+    resume_id = "00000000-0000-0000-0000-000000000099"
+    assert (
+        _resolve_run_id(
+            action="resume",
+            payload={"runId": resume_id},
+            random_id=lambda: "00000000-0000-0000-0000-000000000001",
+        )
+        == resume_id
+    )
+    assert (
+        _resolve_run_id(
+            action="start",
+            payload={"runId": resume_id},
+            random_id=lambda: "00000000-0000-0000-0000-000000000001",
+        )
+        == "00000000-0000-0000-0000-000000000001"
     )
 
 

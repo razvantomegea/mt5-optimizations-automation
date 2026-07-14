@@ -90,11 +90,13 @@ class HeartbeatHost:
             raise RuntimeError(f"mt5_clean_cache.py exited with code {result.returncode}")
 
     def run_favorite(self, set_file: str, symbol: str, unfavorite: bool) -> None:
+        base_dir = DEFAULT_FAVORITES_DIR if unfavorite else DEFAULT_BEST_DIR
+        resolved_set_file = str(base_dir / "sets" / set_file)
         argv = [
             sys.executable,
             str(FAVORITE_SCRIPT),
             "--set-file",
-            set_file,
+            resolved_set_file,
             "--symbol",
             symbol,
             "--best-dir",

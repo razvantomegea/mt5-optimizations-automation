@@ -39,31 +39,54 @@ def _repo_reports_path(repo_root: Path, *segments: str) -> Path:
     return repo_root / "reports" / Path(*segments)
 
 
-def _resolve_windows_absolute_report_path(repo_root: Path, candidate: str) -> Path:
+def _resolve_windows_absolute_report_path(
+    repo_root: Path,
+    candidate: str,
+    *,
+    bucket_dir: Path,
+) -> Path:
     segments = _extract_reports_segments(candidate)
     if segments:
         return _repo_reports_path(repo_root, *segments)
-    return _repo_reports_path(repo_root, "Best", "sets", _basename(candidate))
+    return bucket_dir / "sets" / _basename(candidate)
 
 
-def _resolve_relative_report_path(repo_root: Path, candidate: str) -> Path:
+def _resolve_relative_report_path(
+    repo_root: Path,
+    candidate: str,
+    *,
+    bucket_dir: Path,
+) -> Path:
     normalized = _normalize_slashes(candidate)
     if normalized.startswith(REPORTS_PREFIX):
         segments = [part for part in normalized[len(REPORTS_PREFIX) :].split("/") if part]
         if segments:
             return _repo_reports_path(repo_root, *segments)
     if "/" not in normalized:
-        return _repo_reports_path(repo_root, "Best", "sets", normalized)
+        return bucket_dir / "sets" / normalized
     return (repo_root / normalized).resolve()
 
 
-def normalize_report_path(repo_root: Path, candidate: str) -> Path:
+def normalize_report_path(
+    repo_root: Path,
+    candidate: str,
+    *,
+    bucket_dir: Path,
+) -> Path:
     path = Path(candidate)
     if path.is_absolute():
         return path.resolve()
     if _is_windows_absolute_path(candidate):
-        return _resolve_windows_absolute_report_path(repo_root, candidate)
-    return _resolve_relative_report_path(repo_root, candidate)
+        return _resolve_windows_absolute_report_path(
+            repo_root,
+            candidate,
+            bucket_dir=bucket_dir,
+        )
+    return _resolve_relative_report_path(
+        repo_root,
+        candidate,
+        bucket_dir=bucket_dir,
+    )
 
 
 def _has_required_identity_fields(identity: dict[str, Any]) -> bool:
@@ -104,7 +127,7 @@ def _find_existing_in_best_dir(
     candidate: str,
     repo_root: Path,
 ) -> Path | None:
-    resolved = normalize_report_path(repo_root, candidate)
+    resolved = normalize_report_path(repo_root, candidate, bucket_dir=best_dir)
     if resolved.is_file():
         return resolved
     sets_candidate = _sets_path(best_dir, candidate)

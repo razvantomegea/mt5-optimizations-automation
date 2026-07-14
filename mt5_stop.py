@@ -34,9 +34,21 @@ def stop_terminal64() -> None:
     result = subprocess.run(
         ["taskkill", "/IM", "terminal64.exe", "/F"],
         check=False,
+        capture_output=True,
+        text=True,
     )
-    if result.returncode != 0:
+    if result.returncode == 0:
+        return
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    if result.returncode == 128 or "not found" in output:
         print("No terminal64.exe process running")
+        return
+    message = (
+        (result.stderr or result.stdout or "").strip()
+        or f"taskkill failed (code {result.returncode})"
+    )
+    print(message, file=sys.stderr)
+    raise SystemExit(result.returncode)
 
 
 def main() -> int:

@@ -14,7 +14,7 @@ DATE_PATTERN = re.compile(r"^\d{4}\.\d{2}\.\d{2}$")
 TOKEN_PATTERN = re.compile(r"^[A-Z0-9._]+$")
 ALLOWED_STRATEGIES = frozenset({"Classic", "Multi"})
 ALLOWED_OPTIMIZATION_MODES = frozenset({"1", "2"})
-SET_FILE_PATTERN = re.compile(r"^[A-Za-z0-9._:\\/\\-]+$")
+SET_FILE_PATTERN = re.compile(r"^[A-Za-z0-9._-]+\.set$")
 
 
 @dataclass(frozen=True)
@@ -149,14 +149,31 @@ def read_start_payload(*, action: str, payload: dict[str, Any]) -> OptimizeConfi
     )
 
 
+def _resolve_run_id(
+    *,
+    action: str,
+    payload: dict[str, Any],
+    random_id: Callable[[], str],
+) -> str:
+    if action != "resume":
+        return random_id()
+    run_id = payload.get("runId")
+    if isinstance(run_id, str) and run_id.strip():
+        return run_id.strip()
+    return random_id()
+
+
 def read_favorite_payload(payload: dict[str, Any]) -> tuple[str, str]:
     set_file = payload.get("setFile")
     symbol = payload.get("symbol")
     if not isinstance(set_file, str) or not SET_FILE_PATTERN.match(set_file.strip()):
         raise ValueError("favorite/unfavorite requires a valid setFile")
-    if not isinstance(symbol, str) or not TOKEN_PATTERN.match(symbol.strip()):
+    if not isinstance(symbol, str):
         raise ValueError("favorite/unfavorite requires a valid symbol")
-    return set_file.strip(), symbol.strip().upper()
+    normalized_symbol = symbol.strip().upper()
+    if not TOKEN_PATTERN.match(normalized_symbol):
+        raise ValueError("favorite/unfavorite requires a valid symbol")
+    return set_file.strip(), normalized_symbol
 
 
 class OptimizerHeartbeat:
@@ -188,14 +205,13 @@ class OptimizerHeartbeat:
         self._worker_store.touch_heartbeat(busy=self._child_busy)
 
     def await_active_run(self) -> None:
-        if self._active_run is None:
+        active_run = self._active_run
+        if active_run is None:
             return
-        self._active_run.join()
+        active_run.join()
 
     def shutdown(self) -> None:
-        terminate = getattr(self._active_run, "terminate", None)
-        if callable(terminate):
-            terminate()
+        self._run_stop()
         self.await_active_run()
 
     def poll_commands(self) -> None:
@@ -259,7 +275,11 @@ class OptimizerHeartbeat:
             raise RuntimeError("Optimizer already running")
 
         config = read_start_payload(action=action, payload=payload)
-        run_id = self._random_id()
+        run_id = _resolve_run_id(
+            action=action,
+            payload=payload,
+            random_id=self._random_id,
+        )
         self._worker_store.start_run(
             command_id=command_id,
             from_date=config.from_date,
