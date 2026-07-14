@@ -1,13 +1,11 @@
-"""Load repo env files for MT5 CLI scripts."""
+"""Load env files for MT5 CLI scripts."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from mt5_workspace import resolve_app_root
-
-APP_ROOT = resolve_app_root()
+from mt5_workspace import PACKAGE_ROOT
 
 
 def _load_env_file(path: Path) -> None:
@@ -26,5 +24,5 @@ def _load_env_file(path: Path) -> None:
 
 
 def load_repo_env() -> None:
-    _load_env_file(APP_ROOT / ".env.local")
-    _load_env_file(APP_ROOT / ".env")
+    _load_env_file(PACKAGE_ROOT / ".env.local")
+    _load_env_file(PACKAGE_ROOT / ".env")

@@ -94,6 +94,81 @@ class TradeEchoOptimizerApi:
             body={"op": "markRunning", "runId": run_id},
         )
 
+    def touch_heartbeat(self, *, busy: bool = False) -> None:
+        self._request(
+            "POST",
+            "/api/optimizer/worker",
+            body={"op": "heartbeat", "busy": busy},
+        )
+
+    def mark_command_done(
+        self,
+        *,
+        command_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        body: dict[str, Any] = {
+            "op": "markCommandDone",
+            "commandId": command_id,
+            "status": status,
+        }
+        if error is not None:
+            body["error"] = error
+        self._request("POST", "/api/optimizer/worker", body=body)
+
+    def start_run(
+        self,
+        *,
+        command_id: str,
+        from_date: str,
+        to_date: str,
+        symbols: list[str],
+        timeframes: list[str],
+        resume: bool,
+        run_id: str,
+    ) -> str:
+        payload = self._request(
+            "POST",
+            "/api/optimizer/worker",
+            body={
+                "op": "startRun",
+                "commandId": command_id,
+                "fromDate": from_date,
+                "toDate": to_date,
+                "symbols": symbols,
+                "timeframes": timeframes,
+                "resume": resume,
+                "runId": run_id,
+            },
+        )
+        return str(payload.get("runId") or run_id)
+
+    def set_worker_idle(self) -> None:
+        self._request("POST", "/api/optimizer/worker", body={"op": "setIdle"})
+
+    def mark_running_runs_stopped(self) -> None:
+        self._request("POST", "/api/optimizer/worker", body={"op": "stopRuns"})
+
+    def fail_running_runs(self, *, error: str) -> None:
+        self._request(
+            "POST",
+            "/api/optimizer/worker",
+            body={"op": "failRuns", "error": error},
+        )
+
+    def clear_optimization_data(self) -> None:
+        self._request("POST", "/api/optimizer/worker", body={"op": "clearData"})
+
+    def claim_pending_command(self, *, interruptible_only: bool = False) -> dict[str, Any] | None:
+        payload = self._request(
+            "POST",
+            "/api/optimizer/worker",
+            body={"op": "poll", "interruptibleOnly": interruptible_only},
+        )
+        command = payload.get("command")
+        return command if isinstance(command, dict) else None
+
 
 def resolve_optimization_run_id() -> str:
     run_id = os.environ.get("OPTIMIZATION_RUN_ID", "").strip()

@@ -6,6 +6,10 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 
 | Script                       | Purpose                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
+| `mt5_heartbeat.py`           | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume       |
+| `mt5_stop.py`                | Stop `terminal64.exe` and batch optimizer Python processes      |
+| `mt5_clean_cache.py`         | Clear MT5 tester cache and local batch artifacts                |
+| `mt5_sync_favorites.py`      | Copy dashboard favorites from `Best/` to `Favorites/`           |
 | `mt5_batch_optimize.py`      | Batch forward optimization + per-job validation                 |
 | `mt5_opt_report.py`          | Optimization XML parsing and candidate filters                  |
 | `mt5_equity_metrics.py`      | Equity-curve metrics from backtest HTML                         |
@@ -47,11 +51,29 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 
 5. **Install your EA** in MetaTrader 5 (`File → Open Data Folder → MQL5\Experts`).
 
-6. **Optional — TradeEcho dashboard:** set `TRADEECHO_USER_ID` and run the optimizer heartbeat worker so Start/Stop in the web UI controls your PC (see [Dashboard integration](#tradeecho-dashboard-integration)).
+6. **Optional — TradeEcho dashboard:** set `TRADEECHO_USER_ID` in `.env` and run the optimizer heartbeat worker so Start/Stop in the web UI controls your PC (see [Dashboard integration](#tradeecho-dashboard-integration)).
 
-Scripts load `.env` automatically on startup.
+Scripts load `.env` and `.env.local` from this folder.
 
-## `SetFiles/` layouts
+## Operator commands
+
+From **this folder**, run Python directly:
+
+| Workflow                       | Command                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Dashboard worker               | `python mt5_heartbeat.py`                                                                                    |
+| Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2016.07.02 --to-date 2026.07.02` |
+| Batch optimize only            | add `--no-validate` to the optimize command                                                                  |
+| Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                               |
+| Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                         |
+| Clean cache + artifacts        | `python mt5_clean_cache.py`                                                                                  |
+| Preview clean                  | `python mt5_clean_cache.py --dry-run`                                                                        |
+| Cache only                     | `python mt5_clean_cache.py --cache-only`                                                                     |
+| Artifacts only                 | `python mt5_clean_cache.py --artifacts-only`                                                                 |
+| Sync favorites                 | `python mt5_sync_favorites.py`                                                                               |
+| Build portfolio                | `python mt5_portfolio_favorites.py`                                                                          |
+| Step-usage report              | `python mt5_step_usage.py`                                                                                   |
+| Unit tests                     | `python -m pytest -q`                                                                                        |
 
 Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`):
 
@@ -86,7 +108,7 @@ Restrict runs with `--strategies Classic Multi` (nested) or `--strategies Defaul
 | `MT5_SET_DIR`                 | No\*     | Folder with `.set` grids (default: `./SetFiles`) |
 | `MT5_EXPERT`                  | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)  |
 | `TRADEECHO_USER_ID`           | Yes      | Your TradeEcho User ID (Ultimate plan)           |
-| `TRADEECHO_API_BASE_URL`      | No       | API host (default: production Railway host)      |
+| `TRADEECHO_API_BASE_URL`      | No       | API host (default: `https://trade-echo.com`)     |
 | `TRADEECHO_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)  |
 
 \*Required when `SetFiles/` is empty and you do not pass `--validate-set-dir`.
@@ -310,21 +332,30 @@ Ultimate subscribers can control runs from the TradeEcho optimizations dashboard
 
 ### Step 1 — Configure `.env`
 
+Copy [`.env.example`](.env.example) to `.env` (or `.env.local`) in **this folder** — the same folder as `README.md`:
+
 ```env
 TRADEECHO_USER_ID=your-uuid-from-dashboard-setup
+MT5_EXPERT=MyEA.ex5
 ```
+
+Use the User ID shown on `/dashboard/optimizations` → **Local MT5 optimizer** setup card. Do not leave `TRADEECHO_USER_ID` empty; an unset value causes `TRADEECHO_USER_ID is not set` at startup.
+
+Optional: `TRADEECHO_API_BASE_URL` (defaults to the production TradeEcho API host).
 
 ### Step 2 — Start the optimizer worker
 
 Keep a terminal open on your Windows PC with the **optimizer heartbeat worker** running. It polls the TradeEcho API every **10 seconds**, reports idle/busy status, and executes **Start**, **Stop**, **Clean**, and **Resume** commands from the web UI.
 
-From the TradeEcho app repo root (Node.js 20+):
+Open the terminal in **this folder** (where `.env` lives), then start the worker:
 
 ```powershell
-pnpm mt5:heartbeat
+python mt5_heartbeat.py
 ```
 
-Standalone clone: run the equivalent heartbeat script from TradeEcho setup docs (same `TRADEECHO_USER_ID` in `.env`).
+You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
+
+**`TRADEECHO_USER_ID is not set`?** Confirm the variable is set to your UUID (not blank) in `.env` or `.env.local` in this folder, then retry.
 
 ### Step 3 — Start a run from the dashboard
 
@@ -348,7 +379,7 @@ While the worker is running, the dashboard shows batch progress, pass/fail feed,
 
 ### CLI-only (no worker)
 
-You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly; results stay local under `reports/`. Dashboard sync requires the heartbeat worker and `TRADEECHO_USER_ID`.
+You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly from this folder; results stay local under `reports/`. Live dashboard sync during a run still needs `TRADEECHO_USER_ID` in `.env`; remote Start/Stop from the web UI needs the heartbeat worker.
 
 ## Local artifacts (gitignored)
 
