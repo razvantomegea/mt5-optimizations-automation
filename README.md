@@ -66,7 +66,7 @@ From **this folder**, run Python directly:
 | Batch optimize only            | add `--no-validate` to the optimize command                                                                  |
 | Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                               |
 | Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                         |
-| Clean cache + artifacts        | `python mt5_clean_cache.py`                                                                                  |
+| Clean cache + artifacts        | `python mt5_clean_cache.py` (local only; dashboard **Clean** also clears optimization DB rows for your user and keeps favorites) |
 | Preview clean                  | `python mt5_clean_cache.py --dry-run`                                                                        |
 | Cache only                     | `python mt5_clean_cache.py --cache-only`                                                                     |
 | Artifacts only                 | `python mt5_clean_cache.py --artifacts-only`                                                                 |
