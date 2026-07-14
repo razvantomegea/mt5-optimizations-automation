@@ -59,21 +59,21 @@ Scripts load `.env` and `.env.local` from this folder.
 
 From **this folder**, run Python directly:
 
-| Workflow                       | Command                                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| Dashboard worker               | `python mt5_heartbeat.py`                                                                                    |
-| Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2016.07.02 --to-date 2026.07.02` |
-| Batch optimize only            | add `--no-validate` to the optimize command                                                                  |
-| Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                               |
-| Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                         |
+| Workflow                       | Command                                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard worker               | `python mt5_heartbeat.py`                                                                                                        |
+| Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2016.07.02 --to-date 2026.07.02`                     |
+| Batch optimize only            | add `--no-validate` to the optimize command                                                                                      |
+| Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                                                   |
+| Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                                             |
 | Clean cache + artifacts        | `python mt5_clean_cache.py` (local only; dashboard **Clean** also clears optimization DB rows for your user and keeps favorites) |
-| Preview clean                  | `python mt5_clean_cache.py --dry-run`                                                                        |
-| Cache only                     | `python mt5_clean_cache.py --cache-only`                                                                     |
-| Artifacts only                 | `python mt5_clean_cache.py --artifacts-only`                                                                 |
-| Sync favorites                 | `python mt5_sync_favorites.py`                                                                               |
-| Build portfolio                | `python mt5_portfolio_favorites.py`                                                                          |
-| Step-usage report              | `python mt5_step_usage.py`                                                                                   |
-| Unit tests                     | `python -m pytest -q`                                                                                        |
+| Preview clean                  | `python mt5_clean_cache.py --dry-run`                                                                                            |
+| Cache only                     | `python mt5_clean_cache.py --cache-only`                                                                                         |
+| Artifacts only                 | `python mt5_clean_cache.py --artifacts-only`                                                                                     |
+| Sync favorites                 | `python mt5_sync_favorites.py`                                                                                                   |
+| Build portfolio                | `python mt5_portfolio_favorites.py`                                                                                              |
+| Step-usage report              | `python mt5_step_usage.py`                                                                                                       |
+| Unit tests                     | `python -m pytest -q`                                                                                                            |
 
 Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`):
 
