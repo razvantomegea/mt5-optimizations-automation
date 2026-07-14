@@ -12,6 +12,13 @@ from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 REPORT_SUFFIXES = {".htm", ".html", ".xml"}
 
 
+def _rollback_moves(moves: list[tuple[Path, Path]]) -> None:
+    for src, dest in reversed(moves):
+        if dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(dest), src)
+
+
 def transfer_strategy(
     *,
     set_file: Path,
@@ -23,30 +30,41 @@ def transfer_strategy(
         raise FileNotFoundError(f"Set file not found: {set_file}")
 
     stem = set_file.stem
-    moved: list[Path] = []
-
     dest_set_dir = to_dir / "sets"
-    dest_set_dir.mkdir(parents=True, exist_ok=True)
     dest_set = dest_set_dir / set_file.name
-    shutil.move(str(set_file), dest_set)
-    moved.append(dest_set)
 
     src_report_dir = from_dir / "reports" / symbol
-    if not src_report_dir.is_dir():
-        return moved
+    report_moves: list[tuple[Path, Path]] = []
+    if src_report_dir.is_dir():
+        dest_report_dir = to_dir / "reports" / symbol
+        for report in sorted(src_report_dir.iterdir()):
+            if not report.is_file():
+                continue
+            if report.suffix.lower() not in REPORT_SUFFIXES:
+                continue
+            if stem not in report.name:
+                continue
+            report_moves.append((report, dest_report_dir / report.name))
 
-    dest_report_dir = to_dir / "reports" / symbol
-    dest_report_dir.mkdir(parents=True, exist_ok=True)
-    for report in sorted(src_report_dir.iterdir()):
-        if not report.is_file():
-            continue
-        if report.suffix.lower() not in REPORT_SUFFIXES:
-            continue
-        if stem not in report.name:
-            continue
-        dest_report = dest_report_dir / report.name
-        shutil.move(str(report), dest_report)
-        moved.append(dest_report)
+    moved: list[Path] = []
+    completed_moves: list[tuple[Path, Path]] = []
+
+    try:
+        dest_set_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(set_file), dest_set)
+        completed_moves.append((set_file, dest_set))
+        moved.append(dest_set)
+
+        if report_moves:
+            dest_report_dir = to_dir / "reports" / symbol
+            dest_report_dir.mkdir(parents=True, exist_ok=True)
+            for src_report, dest_report in report_moves:
+                shutil.move(str(src_report), dest_report)
+                completed_moves.append((src_report, dest_report))
+                moved.append(dest_report)
+    except Exception:
+        _rollback_moves(completed_moves)
+        raise
 
     return moved
 

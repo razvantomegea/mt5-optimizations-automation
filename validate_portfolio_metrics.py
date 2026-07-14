@@ -158,7 +158,7 @@ def main(argv: list[str]) -> int:
     try:
         api = TradeEchoOptimizerApi.from_env()
         return validate_favorites(api)
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

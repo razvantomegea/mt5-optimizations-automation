@@ -123,10 +123,15 @@ def build_synthetic_report_metrics(
     ]
     equity_quality = None
     if len(times) == len(balances) and len(balances) >= 2:
+        dd_for_quality = (
+            resolved_equity_dd_pct
+            if resolved_equity_dd_pct is not None
+            else max_dd_pct
+        )
         equity_quality = compute_equity_quality_from_series(
             times,
             balances,
-            equity_dd_pct=max(resolved_equity_dd_pct or max_dd_pct, 0.01),
+            equity_dd_pct=max(dd_for_quality, 0.01),
         )
 
     dd_value = f"{max_dd_pct:.2f}% ({initial_deposit * max_dd_pct / 100.0:,.2f})"
@@ -171,7 +176,11 @@ def build_synthetic_report_metrics(
 
     metric_flags = {
         "equity_drawdown_available": resolved_equity_dd_pct is not None,
-        "equity_sharpe_available": sharpe_value is not None and sharpe_source == "equity",
+        "equity_sharpe_available": (
+            sharpe_value is not None
+            and sharpe_series is equities
+            and equity_dd_available
+        ),
         "balance_sharpe_available": sharpe_from_series(balances) is not None,
     }
 

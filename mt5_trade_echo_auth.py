@@ -59,7 +59,10 @@ def assert_optimizer_access(*, skip: bool = False) -> None:
                 _fail(f"TradeEcho optimizer access denied (HTTP {response.status}).")
             body = response.read().decode("utf-8")
             if body.strip():
-                json.loads(body)
+                try:
+                    json.loads(body)
+                except json.JSONDecodeError:
+                    _fail("TradeEcho optimizer access check returned invalid JSON.")
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace").strip()
         if error.code == 403:

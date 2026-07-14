@@ -247,18 +247,18 @@ Each `.set` file is scheduled **`DEFAULT_RUNS_PER_SET_FILE` times** (default **1
 
 Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 
-| Step                              | Behavior                                                                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Forward 1/3, Custom max criterion | INI defaults: `ForwardMode=2`, `OptimizationCriterion=6`                                                                            |
-| Optimization engine               | Fast genetic (`--optimization 2`) on 1-minute OHLC (`--model 1`); use `--complete-opt` for slow complete + real ticks                 |
-| Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                      |
-| Back gates (per row in scan)      | Sharpe **≥ 1.5** (`--min-sharpe`)                                                                                                     |
-| Forward gates (per row)           | Forward Sharpe **≥ 1.5** (`--min-sharpe`), forward Result **≥ 3** (required)                                                          |
-| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                         |
-| Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%**       |
-| Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                        |
-| Real-ticks validation gates       | Sharpe **≥ 1.5**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                           |
-| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **10**)                                         |
+| Step                              | Behavior                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Forward 1/3, Custom max criterion | INI defaults: `ForwardMode=2`, `OptimizationCriterion=6`                                                                        |
+| Optimization engine               | Fast genetic (`--optimization 2`) on 1-minute OHLC (`--model 1`); use `--complete-opt` for slow complete + real ticks           |
+| Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                 |
+| Back gates (per row in scan)      | Sharpe **≥ 1.5** (`--min-sharpe`)                                                                                               |
+| Forward gates (per row)           | Forward Sharpe **≥ 1.5** (`--min-sharpe`), forward Result **≥ 3** (required)                                                    |
+| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                   |
+| Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%** |
+| Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
+| Real-ticks validation gates       | Sharpe **≥ 1.5**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                     |
+| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **10**)                                   |
 
 Recovery, LR Correlation, Calmar, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates.
 

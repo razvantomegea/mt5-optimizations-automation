@@ -10,7 +10,9 @@ except ImportError:  # pragma: no cover - optional dependency
 
 def connect(database_url: str) -> "psycopg.Connection":
     if psycopg is None:
-        raise RuntimeError("psycopg is required; install EAs/requirements.txt")
+        raise RuntimeError(
+            "psycopg is required; install packages/mt5-optimizations-automation/requirements.txt"
+        )
 
     conninfo = database_url
     if "sslmode=" not in conninfo:

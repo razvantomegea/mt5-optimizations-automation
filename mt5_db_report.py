@@ -210,7 +210,7 @@ class OptimizationApiReporter:
             try:
                 report_metrics = extract_full_report_metrics(real_report_path)
                 equity_curve = extract_equity_curve(real_report_path)
-            except (OSError, ValueError) as exc:
+            except Exception as exc:
                 print(f"  WARNING: report parse failed: {exc}", file=sys.stderr)
 
         self._safe(
