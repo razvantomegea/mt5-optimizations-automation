@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+
+# EA-specific optimization grids — keep locally, never commit
+SetFiles/**
+!SetFiles/.gitkeep
