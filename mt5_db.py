@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover - optional dependency
 def connect(database_url: str) -> "psycopg.Connection":
     if psycopg is None:
         raise RuntimeError(
-            "psycopg is required; install packages/mt5-optimizations-automation/requirements.txt"
+            "psycopg is required; install requirements.txt from this folder"
         )
 
     conninfo = database_url

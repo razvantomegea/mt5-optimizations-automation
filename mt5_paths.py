@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from mt5_workspace import PACKAGE_ROOT, resolve_app_root
+from mt5_workspace import PACKAGE_ROOT
 
-APP_ROOT = resolve_app_root()
-DEFAULT_BEST_DIR = APP_ROOT / "reports" / "Best"
-DEFAULT_FAVORITES_DIR = APP_ROOT / "reports" / "Favorites"
+DEFAULT_BEST_DIR = PACKAGE_ROOT / "reports" / "Best"
+DEFAULT_FAVORITES_DIR = PACKAGE_ROOT / "reports" / "Favorites"
 DEFAULT_SET_FILES_DIR = PACKAGE_ROOT / "SetFiles"
 
 
