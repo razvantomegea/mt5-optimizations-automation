@@ -27,7 +27,7 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 - Windows with **MetaTrader 5** (`terminal64.exe`)
 - Python **3.10+** — `pip install -r requirements.txt` (`defusedxml` for report XML parsing)
 - Compiled EA (`.ex5`) in your MT5 `MQL5\Experts` folder
-- Active **TradeEcho Ultimate** subscription (`TRADEECHO_USER_ID` + API check)
+- Active [**TradeEcho Ultimate**](https://trade-echo.com/pricing) subscription (`TRADEECHO_USER_ID` + API check)
 
 ## Setup
 
@@ -40,7 +40,7 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
    ```
 
 3. **Copy [`.env.example`](.env.example) to `.env`** and set at minimum:
-   - `TRADEECHO_USER_ID` — your User ID from TradeEcho dashboard → Setup
+   - `TRADEECHO_USER_ID` — your User ID from [TradeEcho](https://trade-echo.com/dashboard) dashboard → Setup
    - `MT5_EXPERT` — compiled EA filename (e.g. `MyEA.ex5`)
 
 4. **Add `.set` grids** under `SetFiles/` (see layouts below). These are not shipped in the repo.
