@@ -12,13 +12,14 @@ from mt5_portfolio_merge import (
     ALL_FAVORITES_PORTFOLIO_ID,
     load_strategy_series,
     merge_strategy_series,
+    normalize_favorite_export_rows,
 )
 from mt5_trade_echo_api import TradeEchoOptimizerApi
 from mt5_trade_echo_auth import assert_optimizer_access
 
 
 def build_all_favorites_portfolio(api: TradeEchoOptimizerApi) -> dict[str, Any]:
-    rows = api.get_favorites()
+    rows = normalize_favorite_export_rows(api.get_favorites())
     if not rows:
         raise ValueError("No favorite strategies found")
 

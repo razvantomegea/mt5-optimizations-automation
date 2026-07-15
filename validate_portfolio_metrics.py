@@ -13,6 +13,7 @@ from mt5_opt_report import read_report_text, to_float
 from mt5_portfolio_merge import (
     load_strategy_series,
     merge_strategy_series,
+    normalize_favorite_export_rows,
     resolve_strategy_report_path,
 )
 from mt5_trade_echo_api import TradeEchoOptimizerApi
@@ -50,33 +51,11 @@ def _report_balance_dd(report_path) -> float | None:
     return to_float(match.group(1).replace(" ", ""))
 
 
-def _normalize_favorite_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-    for row in rows:
-        data = dict(row)
-        aliases = {
-            "equityCurve": "equity_curve",
-            "reportMetrics": "report_metrics",
-            "passId": "pass_id",
-            "reportStem": "report_stem",
-            "paramFile": "param_file",
-        }
-        for camel, snake in aliases.items():
-            if camel in data and snake not in data:
-                data[snake] = data[camel]
-        for key in ("summary", "parameters", "equity_curve", "report_metrics"):
-            raw = data.get(key)
-            if isinstance(raw, str):
-                data[key] = json.loads(raw or ("[]" if key == "equity_curve" else "{}"))
-        normalized.append(data)
-    return normalized
-
-
 def validate_favorites(api: TradeEchoOptimizerApi) -> int:
     issues: list[str] = []
     warnings: list[str] = []
 
-    rows = _normalize_favorite_rows(api.get_favorites())
+    rows = normalize_favorite_export_rows(api.get_favorites())
     strategies = [load_strategy_series(row) for row in rows]
     merged = merge_strategy_series(strategies)
 

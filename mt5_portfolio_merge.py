@@ -458,6 +458,30 @@ def trades_from_equity_curve(
     return closed_trades
 
 
+def normalize_favorite_export_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Map TradeEcho API camelCase favorite rows to snake_case for merge helpers."""
+    data = dict(row)
+    aliases = {
+        "equityCurve": "equity_curve",
+        "reportMetrics": "report_metrics",
+        "passId": "pass_id",
+        "reportStem": "report_stem",
+        "paramFile": "param_file",
+    }
+    for camel, snake in aliases.items():
+        if camel in data and snake not in data:
+            data[snake] = data[camel]
+    for key in ("summary", "parameters", "equity_curve", "report_metrics"):
+        raw = data.get(key)
+        if isinstance(raw, str):
+            data[key] = json.loads(raw or ("[]" if key == "equity_curve" else "{}"))
+    return data
+
+
+def normalize_favorite_export_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [normalize_favorite_export_row(row) for row in rows]
+
+
 def load_strategy_series(row: dict[str, Any]) -> StrategySeries:
     result_id = str(row["id"])
     symbol = str(row.get("symbol", ""))
