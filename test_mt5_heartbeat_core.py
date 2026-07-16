@@ -105,12 +105,14 @@ def test_process_stop_command_runs_stop_steps() -> None:
 def test_process_favorite_command_moves_files() -> None:
     worker_store = MagicMock()
     run_favorite = MagicMock()
+    run_portfolio_build = MagicMock()
     heartbeat = create_optimizer_heartbeat(
         worker_store=worker_store,
         run_optimize=MagicMock(),
         run_stop=MagicMock(),
         run_clean=MagicMock(),
         run_favorite=run_favorite,
+        run_portfolio_build=run_portfolio_build,
     )
 
     heartbeat.process_command(
@@ -129,6 +131,70 @@ def test_process_favorite_command_moves_files() -> None:
         "EURUSD",
         False,
     )
+    run_portfolio_build.assert_called_once()
+    worker_store.mark_command_done.assert_called_with(
+        command_id="cmd-favorite",
+        status="done",
+    )
+
+
+def test_process_favorite_command_failure_does_not_fail_running_runs() -> None:
+    worker_store = MagicMock()
+    run_favorite = MagicMock(side_effect=RuntimeError("Set file not found"))
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=MagicMock(),
+        run_favorite=run_favorite,
+    )
+
+    heartbeat.process_command(
+        {
+            "id": "cmd-favorite",
+            "action": "favorite",
+            "payload": {
+                "setFile": "missing.set",
+                "symbol": "EURUSD",
+            },
+        }
+    )
+
+    worker_store.mark_command_done.assert_called_with(
+        command_id="cmd-favorite",
+        status="failed",
+        error="Set file not found",
+    )
+    worker_store.fail_running_runs.assert_not_called()
+    worker_store.set_worker_idle.assert_not_called()
+
+
+def test_process_favorite_command_marks_done_when_portfolio_refresh_fails() -> None:
+    worker_store = MagicMock()
+    run_favorite = MagicMock()
+    run_portfolio_build = MagicMock(side_effect=RuntimeError("Portfolio build failed"))
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=MagicMock(),
+        run_favorite=run_favorite,
+        run_portfolio_build=run_portfolio_build,
+    )
+
+    heartbeat.process_command(
+        {
+            "id": "cmd-favorite",
+            "action": "favorite",
+            "payload": {
+                "setFile": "foo.set",
+                "symbol": "EURUSD",
+            },
+        }
+    )
+
+    run_favorite.assert_called_once()
+    run_portfolio_build.assert_called_once()
     worker_store.mark_command_done.assert_called_with(
         command_id="cmd-favorite",
         status="done",

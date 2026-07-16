@@ -12,7 +12,10 @@ from pathlib import Path
 
 from mt5_heartbeat_core import OptimizeConfig, OptimizerHeartbeat, create_optimizer_heartbeat
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
+from mt5_env import load_repo_env
+from mt5_portfolio_favorites import refresh_all_favorites_portfolio
 from mt5_trade_echo_api import TradeEchoOptimizerApi
+from mt5_trade_echo_auth import assert_optimizer_access
 from mt5_workspace import PACKAGE_ROOT
 
 HEARTBEAT_MS = 10_000
@@ -90,13 +93,32 @@ class HeartbeatHost:
             raise RuntimeError(f"mt5_clean_cache.py exited with code {result.returncode}")
 
     def run_favorite(self, set_file: str, symbol: str, unfavorite: bool) -> None:
-        base_dir = DEFAULT_FAVORITES_DIR if unfavorite else DEFAULT_BEST_DIR
-        resolved_set_file = str(base_dir / "sets" / set_file)
+        favorites_set = DEFAULT_FAVORITES_DIR / "sets" / set_file
+        best_set = DEFAULT_BEST_DIR / "sets" / set_file
+
+        if unfavorite:
+            if favorites_set.is_file():
+                source_set = favorites_set
+            elif best_set.is_file():
+                log(f"Already in Best/: {set_file}")
+                return
+            else:
+                raise RuntimeError(f"Set file not found for unfavorite: {set_file}")
+        elif favorites_set.is_file():
+            log(f"Already in Favorites/: {set_file}")
+            return
+        elif best_set.is_file():
+            source_set = best_set
+        else:
+            raise RuntimeError(
+                f"Set file not found under {DEFAULT_BEST_DIR / 'sets'}: {set_file}"
+            )
+
         argv = [
             sys.executable,
             str(FAVORITE_SCRIPT),
             "--set-file",
-            resolved_set_file,
+            str(source_set),
             "--symbol",
             symbol,
             "--best-dir",
@@ -114,10 +136,28 @@ class HeartbeatHost:
             text=True,
             check=False,
         )
+        if result.stdout.strip():
+            for line in result.stdout.strip().splitlines():
+                log(line.strip())
         if result.stderr.strip():
             log(result.stderr.strip())
-        if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Favorite script did not move any files")
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(detail or "Favorite script failed")
+
+    def run_portfolio_build(self) -> None:
+        load_repo_env()
+        assert_optimizer_access()
+        api = TradeEchoOptimizerApi.from_env()
+        result = refresh_all_favorites_portfolio(api)
+        if result is None:
+            log("Portfolio cleared (no favorites remain)")
+            return
+        log(
+            "Portfolio updated: "
+            f"{result['strategy_count']} strategies, "
+            f"{result['total_trades']} trades"
+        )
 
     def run_cycle(self) -> None:
         try:
@@ -155,12 +195,16 @@ def build_host() -> HeartbeatHost:
     def run_favorite(set_file: str, symbol: str, unfavorite: bool) -> None:
         host_holder["host"].run_favorite(set_file, symbol, unfavorite)
 
+    def run_portfolio_build() -> None:
+        host_holder["host"].run_portfolio_build()
+
     heartbeat = create_optimizer_heartbeat(
         worker_store=api,
         run_optimize=run_optimize,
         run_stop=run_stop,
         run_clean=run_clean,
         run_favorite=run_favorite,
+        run_portfolio_build=run_portfolio_build,
         log=log,
     )
     host = HeartbeatHost(heartbeat)

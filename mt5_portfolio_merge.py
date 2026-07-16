@@ -189,8 +189,10 @@ def resolve_deal_equity_sidecar_path(report_path: Path) -> Path:
 def extract_initial_deposit(
     report_path: Path | None,
     summary: dict[str, Any],
+    *,
+    equity_curve: list[dict[str, Any]] | None = None,
 ) -> float | None:
-    """Parse initial deposit from summary or report HTML; None if not found."""
+    """Parse initial deposit from summary, report HTML, or equity curve; None if not found."""
     deposit = to_float(summary.get("deposit"))
     if deposit is not None and deposit > 0:
         return deposit
@@ -206,6 +208,12 @@ def extract_initial_deposit(
                 if parsed is not None and parsed > 0:
                     return parsed
 
+    if equity_curve:
+        for point in equity_curve:
+            balance = to_float(point.get("balance"))
+            if balance is not None and balance > 0:
+                return balance
+
     return None
 
 
@@ -214,9 +222,14 @@ def resolve_initial_deposit(
     summary: dict[str, Any],
     *,
     context: str = "",
+    equity_curve: list[dict[str, Any]] | None = None,
 ) -> float:
     """Return initial deposit or raise if it cannot be resolved."""
-    deposit = extract_initial_deposit(report_path, summary)
+    deposit = extract_initial_deposit(
+        report_path,
+        summary,
+        equity_curve=equity_curve,
+    )
     if deposit is not None and deposit > 0:
         return deposit
     suffix = f" ({context})" if context else ""
@@ -505,6 +518,7 @@ def load_strategy_series(row: dict[str, Any]) -> StrategySeries:
         report_path,
         summary,
         context=f"{symbol} {timeframe} pass {pass_id} ({result_id})",
+        equity_curve=equity_curve,
     )
     deals: list[StrategyDeal] = []
     closed_trades: list[StrategyTrade] = []

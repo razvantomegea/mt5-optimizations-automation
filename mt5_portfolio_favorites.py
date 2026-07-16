@@ -60,6 +60,15 @@ def build_all_favorites_portfolio(api: TradeEchoOptimizerApi) -> dict[str, Any]:
     }
 
 
+def refresh_all_favorites_portfolio(api: TradeEchoOptimizerApi) -> dict[str, Any] | None:
+    """Rebuild the all-favorites portfolio snapshot, or clear it when none remain."""
+    rows = normalize_favorite_export_rows(api.get_favorites())
+    if not rows:
+        api.clear_portfolio()
+        return None
+    return build_all_favorites_portfolio(api)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Merge all favorite strategies into one portfolio and save via TradeEcho API.",
@@ -74,7 +83,7 @@ def main(argv: list[str]) -> int:
 
     try:
         api = TradeEchoOptimizerApi.from_env()
-        result = build_all_favorites_portfolio(api)
+        result = refresh_all_favorites_portfolio(api)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -84,6 +93,10 @@ def main(argv: list[str]) -> int:
     except Exception as exc:  # noqa: BLE001 - CLI should report failure
         print(f"Portfolio build failed: {exc}", file=sys.stderr)
         return 1
+
+    if result is None:
+        print("No favorites remain; portfolio snapshot cleared")
+        return 0
 
     print(json.dumps(result, indent=2))
     return 0

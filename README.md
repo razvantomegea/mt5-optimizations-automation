@@ -280,7 +280,7 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%** |
 | Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
 | Real-ticks validation gates       | Sharpe **≥ 1.5**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                     |
-| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **10**)                                   |
+| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **25**)                                   |
 
 Recovery, LR Correlation, Calmar, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates.
 
@@ -368,18 +368,20 @@ While the worker is running, the dashboard shows batch progress, pass/fail feed,
 ### Step 5 — Favorites and portfolio
 
 1. Favorite passed strategies in the dashboard (records in `optimization_favorites`).
-2. The worker copies matching `.set` and report files from `reports/Best/` to `reports/Favorites/` via `mt5_favorite_strategy.py`.
-3. Build the combined portfolio snapshot:
+2. With the heartbeat worker running, favoriting or unfavoriting in the dashboard enqueues a worker command that moves matching `.set` and report files between `reports/Best/` and `reports/Favorites/`, then rebuilds the combined portfolio snapshot for **View portfolio (all)**.
+3. CLI-only: after favoriting, run `python mt5_sync_favorites.py`, then:
 
    ```powershell
    python mt5_portfolio_favorites.py
    ```
 
+   If a favorite has no local realticks report (for example after **Clean** removed `Best/` artifacts), the portfolio builder uses the equity curve stored in the dashboard for that strategy. Removing the last favorite clears the stored portfolio snapshot.
+
 4. Open **View portfolio (all)** in the dashboard.
 
 ### CLI-only (no worker)
 
-You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly from this folder; results stay local under `reports/`. Live dashboard sync during a run still needs `TRADEECHO_USER_ID` in `.env`; remote Start/Stop from the web UI needs the heartbeat worker.
+You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly from this folder; results stay local under `reports/`. Live dashboard sync during a run still needs `TRADEECHO_USER_ID` in `.env`; remote Start/Stop from the web UI needs the heartbeat worker. Without the worker, run `python mt5_sync_favorites.py` after favoriting to copy files into `reports/Favorites/`.
 
 ## Local artifacts (gitignored)
 
@@ -409,7 +411,7 @@ Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_run
 | `--criterion`                 | `6`                                            | Optimization criterion                                       |
 | `--forward-mode`              | `2`                                            | Forward testing mode                                         |
 | `--validate-top-n-per-symbol` | `25`                                           | Top passes per symbol to backtest                            |
-| `--validate-keep-top-k`       | `10`                                           | Top survivors per job after validation ranking               |
+| `--validate-keep-top-k`       | `25`                                           | Top survivors per job after validation ranking               |
 | `--min-forward-result`        | `3`                                            | Forward Result gate (≥)                                      |
 | `--min-back-result`           | `6`                                            | Optimization Custom/Result gate (≥)                          |
 | `--min-sharpe`                | `1.5`                                          | Sharpe gate (≥) for back, forward, and real-ticks validation |

@@ -33,6 +33,7 @@ RunOptimizeFn = Callable[[OptimizeConfig, str], None]
 RunStopFn = Callable[[], None]
 RunCleanFn = Callable[[], None]
 RunFavoriteFn = Callable[[str, str, bool], None]
+RunPortfolioBuildFn = Callable[[], None]
 
 
 class WorkerStore(Protocol):
@@ -185,6 +186,7 @@ class OptimizerHeartbeat:
         run_stop: RunStopFn,
         run_clean: RunCleanFn,
         run_favorite: RunFavoriteFn,
+        run_portfolio_build: RunPortfolioBuildFn | None = None,
         log: LogFn | None = None,
         random_id: Callable[[], str] | None = None,
     ) -> None:
@@ -193,6 +195,7 @@ class OptimizerHeartbeat:
         self._run_stop = run_stop
         self._run_clean = run_clean
         self._run_favorite = run_favorite
+        self._run_portfolio_build = run_portfolio_build or (lambda: None)
         self._log = log or (lambda _message: None)
         self._random_id = random_id or (lambda: str(uuid.uuid4()))
         self._child_busy = False
@@ -252,8 +255,9 @@ class OptimizerHeartbeat:
                 status="failed",
                 error=message,
             )
-            self._worker_store.fail_running_runs(error=message)
-            self._worker_store.set_worker_idle()
+            if action in {"start", "resume"}:
+                self._worker_store.fail_running_runs(error=message)
+                self._worker_store.set_worker_idle()
 
     def _process_favorite_command(
         self,
@@ -263,6 +267,10 @@ class OptimizerHeartbeat:
     ) -> None:
         set_file, symbol = read_favorite_payload(payload)
         self._run_favorite(set_file, symbol, action == "unfavorite")
+        try:
+            self._run_portfolio_build()
+        except Exception as error:  # noqa: BLE001 - keep favorite move result
+            self._log(f"Portfolio refresh failed: {error}")
         self._worker_store.mark_command_done(command_id=command_id, status="done")
 
     def _process_start_command(
@@ -333,6 +341,7 @@ def create_optimizer_heartbeat(
     run_stop: RunStopFn,
     run_clean: RunCleanFn,
     run_favorite: RunFavoriteFn | None = None,
+    run_portfolio_build: RunPortfolioBuildFn | None = None,
     log: LogFn | None = None,
     random_id: Callable[[], str] | None = None,
 ) -> OptimizerHeartbeat:
@@ -342,6 +351,7 @@ def create_optimizer_heartbeat(
         run_stop=run_stop,
         run_clean=run_clean,
         run_favorite=run_favorite or (lambda _set_file, _symbol, _unfavorite: None),
+        run_portfolio_build=run_portfolio_build or (lambda: None),
         log=log,
         random_id=random_id,
     )

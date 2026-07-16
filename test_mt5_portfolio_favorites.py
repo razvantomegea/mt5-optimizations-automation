@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mt5_portfolio_favorites import build_all_favorites_portfolio, main
+from mt5_portfolio_favorites import (
+    build_all_favorites_portfolio,
+    main,
+    refresh_all_favorites_portfolio,
+)
 from mt5_portfolio_merge import ALL_FAVORITES_PORTFOLIO_ID, MergedPortfolio
 from portfolio_test_helpers import series, trade
 
@@ -100,19 +104,30 @@ def test_build_all_favorites_portfolio_raises_when_no_favorites() -> None:
         build_all_favorites_portfolio(api)
 
 
+def test_refresh_all_favorites_portfolio_clears_when_no_favorites() -> None:
+    api = MagicMock()
+    api.get_favorites.return_value = []
+
+    result = refresh_all_favorites_portfolio(api)
+
+    assert result is None
+    api.clear_portfolio.assert_called_once()
+    api.upsert_portfolio.assert_not_called()
+
+
 @patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
-@patch("mt5_portfolio_favorites.build_all_favorites_portfolio")
+@patch("mt5_portfolio_favorites.refresh_all_favorites_portfolio")
 @patch("mt5_portfolio_favorites.load_repo_env")
 def test_main_success(
     _load_env: MagicMock,
-    build_mock: MagicMock,
+    refresh_mock: MagicMock,
     _access: MagicMock,
     from_env: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from_env.return_value = MagicMock()
-    build_mock.return_value = {
+    refresh_mock.return_value = {
         "portfolio_id": ALL_FAVORITES_PORTFOLIO_ID,
         "strategy_count": 1,
         "total_trades": 1,
@@ -131,22 +146,42 @@ def test_main_success(
 
 @patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
-@patch("mt5_portfolio_favorites.build_all_favorites_portfolio")
+@patch("mt5_portfolio_favorites.refresh_all_favorites_portfolio")
 @patch("mt5_portfolio_favorites.load_repo_env")
-def test_main_returns_error_when_no_favorites(
+def test_main_clears_portfolio_when_no_favorites(
     _load_env: MagicMock,
-    build_mock: MagicMock,
+    refresh_mock: MagicMock,
     _access: MagicMock,
     from_env: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from_env.return_value = MagicMock()
-    build_mock.side_effect = ValueError("No favorite strategies found")
+    refresh_mock.return_value = None
+
+    exit_code = main([])
+
+    assert exit_code == 0
+    assert "portfolio snapshot cleared" in capsys.readouterr().out.lower()
+
+
+@patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.assert_optimizer_access")
+@patch("mt5_portfolio_favorites.refresh_all_favorites_portfolio")
+@patch("mt5_portfolio_favorites.load_repo_env")
+def test_main_returns_error_when_refresh_raises(
+    _load_env: MagicMock,
+    refresh_mock: MagicMock,
+    _access: MagicMock,
+    from_env: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from_env.return_value = MagicMock()
+    refresh_mock.side_effect = ValueError("Could not resolve initial deposit")
 
     exit_code = main([])
 
     assert exit_code == 1
-    assert "No favorite strategies found" in capsys.readouterr().err
+    assert "Could not resolve initial deposit" in capsys.readouterr().err
 
 
 @patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
