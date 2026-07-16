@@ -43,6 +43,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from mt5_env import load_repo_env
 from mt5_paths import DEFAULT_BEST_DIR, resolve_set_dir
 from mt5_opt_report import (
     ColumnMapping,
@@ -415,7 +416,12 @@ def resolve_report_path(report_base: Path) -> Path:
         candidate = Path(str(report_base) + suffix)
         if candidate.is_file():
             return candidate
-    tried = ", ".join(str(report_base) + suffix for suffix in REPORT_SUFFIXES)
+    # MT5 sometimes writes Report= path with no .htm/.html/.xml suffix.
+    if report_base.is_file():
+        return report_base
+    tried = ", ".join(
+        [str(report_base) + suffix for suffix in REPORT_SUFFIXES] + [str(report_base)]
+    )
     raise FileNotFoundError(f"Backtest report not generated (tried: {tried})")
 
 
@@ -681,11 +687,17 @@ def run_single_backtest(
         raise RuntimeError(
             f"MT5 backtest timed out after {timeout_seconds:.0f}s: {symbol} {timeframe} model={model}"
         ) from None
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"MT5 backtest exited with code {proc.returncode}: {symbol} {timeframe} model={model}"
-        )
-    return resolve_report_path(report_base)
+    try:
+        return resolve_report_path(report_base)
+    except FileNotFoundError:
+        # Optimization jobs already accept nonzero exit when a report exists
+        # (done_with_nonzero_exit). Match that for validation backtests.
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"MT5 backtest exited with code {proc.returncode}: "
+                f"{symbol} {timeframe} model={model}"
+            ) from None
+        raise
 
 
 def extract_backtest_stat(report_path: Path, label: str) -> float:
@@ -1712,6 +1724,7 @@ def _apply_derived_args(args: argparse.Namespace) -> None:
 
 
 def main() -> int:
+    load_repo_env()
     p = argparse.ArgumentParser(description="Batch-run MT5 optimizations with per-job validation")
     add_common_args(p)
 
@@ -1773,13 +1786,14 @@ def main() -> int:
     args = p.parse_args()
     _apply_derived_args(args)
 
+    if not args.expert.strip():
+        raise ValueError("--expert or MT5_EXPERT is required")
+
     if args.validate_only:
         return run_validate_only(args)
 
     if not args.from_date or not args.to_date:
         raise ValueError("--from-date and --to-date are required unless --validate-only")
-    if not args.expert.strip():
-        raise ValueError("--expert or MT5_EXPERT is required unless --validate-only")
     if args.forward_mode == "4" and not args.forward_date.strip():
         raise ValueError("--forward-date is required when --forward-mode=4")
 
