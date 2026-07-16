@@ -771,6 +771,36 @@ def test_extract_initial_deposit_prefers_summary_then_html(tmp_path: Path) -> No
     assert extract_initial_deposit(None, {}) is None
 
 
+def test_extract_initial_deposit_uses_equity_curve_when_report_missing() -> None:
+    curve = [
+        {"time": "2016-12-21T04:00:00", "balance": 99_998.42, "equity": 99_998.42},
+        {"time": "2016-12-22T04:00:00", "balance": 100_500.0, "equity": 100_500.0},
+    ]
+
+    assert extract_initial_deposit(None, {}, equity_curve=curve) == pytest.approx(99_998.42)
+
+
+def test_load_strategy_series_uses_equity_curve_deposit_when_report_missing() -> None:
+    series = load_strategy_series(
+        {
+            "id": "favorite-3434",
+            "symbol": "AUDUSD",
+            "timeframe": "H4",
+            "profile": "Multi",
+            "pass_id": 3434,
+            "summary": {},
+            "parameters": {"RISK": "1.0"},
+            "equity_curve": [
+                {"time": "2016-12-21T04:00:00", "balance": 99_998.42, "equity": 99_998.42},
+                {"time": "2016-12-22T04:00:00", "balance": 100_500.0, "equity": 100_500.0},
+            ],
+        }
+    )
+
+    assert series.initial_deposit == pytest.approx(99_998.42)
+    assert len(series.trades) == 1
+
+
 def test_load_strategy_series_uses_report_when_available(tmp_path: Path) -> None:
     report_path = tmp_path / "EURUSD_M15_Classic_pass9_realticks.htm"
     report_path.write_text(

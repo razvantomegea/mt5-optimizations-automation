@@ -125,7 +125,7 @@ DEFAULT_RISK_ROUND_DECIMALS = 1
 REPORT_SUFFIXES = (".xml", ".htm", ".html")
 DEFAULT_BACKTEST_TIMEOUT_SEC = 300
 DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
-DEFAULT_VALIDATE_KEEP_TOP_K = 10
+DEFAULT_VALIDATE_KEEP_TOP_K = 25
 DEFAULT_RUNS_PER_SET_FILE = 1
 
 
@@ -1636,7 +1636,7 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--validate-keep-top-k",
         type=int,
         default=DEFAULT_VALIDATE_KEEP_TOP_K,
-        help="Max survivors per job after validation ranking (default: 10)",
+        help="Max survivors per job after validation ranking (default: 25)",
     )
     p.add_argument(
         "--backtest-timeout-seconds",

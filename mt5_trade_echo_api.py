@@ -80,6 +80,9 @@ class TradeEchoOptimizerApi:
     def upsert_portfolio(self, portfolio: dict[str, Any]) -> None:
         self._request("PUT", "/api/optimizer/portfolio", body=portfolio)
 
+    def clear_portfolio(self) -> None:
+        self._request("DELETE", "/api/optimizer/portfolio")
+
     def post_run_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         self._request(
             "POST",
