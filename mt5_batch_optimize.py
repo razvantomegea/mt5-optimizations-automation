@@ -17,6 +17,7 @@ Modes
 Important MT5 details
 - [Tester] ExpertParameters must point to a .set file in MQL5\Profiles\Tester.
 - Report paths are relative to the MT5 data directory.
+- MT5 silently truncates long Report= values (~181 chars); keep paths short.
 - ShutdownTerminal=1 lets MT5 close when a job finishes.
 """
 
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import itertools
 import os
 import re
@@ -124,6 +126,8 @@ COMPLETE_OPTIMIZATION_MODE = "1"
 COMPLETE_OPTIMIZATION_MODEL = "4"
 DEFAULT_RISK_ROUND_DECIMALS = 1
 REPORT_SUFFIXES = (".xml", ".htm", ".html")
+# MT5 truncates Report= values around 181-183 chars (181 OK, 183 drops chars).
+MT5_REPORT_PATH_MAX_LEN = 180
 DEFAULT_BACKTEST_TIMEOUT_SEC = 300
 DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
 DEFAULT_VALIDATE_KEEP_TOP_K = 25
@@ -425,6 +429,35 @@ def resolve_report_path(report_base: Path) -> Path:
     raise FileNotFoundError(f"Backtest report not generated (tried: {tried})")
 
 
+def build_tester_report_target(
+    *,
+    data_dir: Path,
+    work_dir: Path,
+    stem: str,
+) -> tuple[Path, str]:
+    """Return (report_base, Report= relpath) within MT5's Report= length limit."""
+    reports_dir = work_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    report_base = reports_dir / stem
+    rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
+    if len(rel) <= MT5_REPORT_PATH_MAX_LEN:
+        return report_base, rel
+
+    short_dir = data_dir / "te_bt"
+    short_dir.mkdir(parents=True, exist_ok=True)
+    report_base = short_dir / stem
+    rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
+    if len(rel) > MT5_REPORT_PATH_MAX_LEN:
+        compact = hashlib.sha1(stem.encode("utf-8")).hexdigest()[:20]
+        report_base = short_dir / compact
+        rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
+    if len(rel) > MT5_REPORT_PATH_MAX_LEN:
+        raise ValueError(
+            f"MT5 Report path still too long ({len(rel)} > {MT5_REPORT_PATH_MAX_LEN}): {rel}"
+        )
+    return report_base, rel
+
+
 def optimization_xml_paths(xml_dir: Path) -> list[Path]:
     """One back .xml per optimization stem (skip duplicate .forward.xml entries)."""
     stems: set[str] = set()
@@ -648,8 +681,14 @@ def run_single_backtest(
     configs_dir = work_dir / "configs"
     reports_dir.mkdir(parents=True, exist_ok=True)
     configs_dir.mkdir(parents=True, exist_ok=True)
-    stem = sanitize(f"{symbol}_{timeframe}_{Path(set_file_name).stem}_model{model}")
-    report_base = reports_dir / stem
+    # Avoid duplicating symbol_tf already present in set stem — long Report=
+    # paths are silently truncated by MT5 (5-digit pass ids were failing).
+    stem = sanitize(f"{Path(set_file_name).stem}_m{model}")
+    report_base, report_rel = build_tester_report_target(
+        data_dir=data_dir,
+        work_dir=work_dir,
+        stem=stem,
+    )
     ini_path = configs_dir / f"{stem}.ini"
     cfg = {
         "Expert": expert,
@@ -662,7 +701,7 @@ def run_single_backtest(
         "FromDate": from_date,
         "ToDate": to_date,
         "ForwardMode": "0",
-        "Report": os.path.relpath(report_base, data_dir).replace("/", "\\"),
+        "Report": report_rel,
         "ReplaceReport": "1",
         "ShutdownTerminal": "1",
         "Deposit": deposit,
@@ -751,8 +790,7 @@ def resolve_validation_risk(
         baseline_report = run_single_backtest(**backtest_kwargs, model=1)
         baseline_dd = extract_backtest_equity_dd_pct(baseline_report)
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
-        if verbose:
-            print(f"    risk scaling baseline probe failed: {exc}")
+        print(f"    risk scaling baseline probe failed: {exc}")
         return RiskScalingResult(
             passed=False,
             reject_reason="risk_scaling_probe_failed",
@@ -810,8 +848,7 @@ def resolve_validation_risk(
         scaled_report = run_single_backtest(**backtest_kwargs, model=1)
         scaled_dd = extract_backtest_equity_dd_pct(scaled_report)
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
-        if verbose:
-            print(f"    risk scaling scaled probe failed: {exc}")
+        print(f"    risk scaling scaled probe failed: {exc}")
         return RiskScalingResult(
             passed=False,
             reject_reason="risk_scaling_probe_failed",
@@ -1199,8 +1236,10 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                 risk_scaling_pass = scaling.passed
 
                 if not scaling.passed:
-                    if cfg.verbose:
-                        print(f"    reject_reason={scaling.reject_reason}")
+                    detail = f"    reject_reason={scaling.reject_reason}"
+                    if scaling.error:
+                        detail += f" | error={scaling.error}"
+                    print(detail)
                     row = candidate_summary_row(
                         cand,
                         set_file=str(generated_set),
