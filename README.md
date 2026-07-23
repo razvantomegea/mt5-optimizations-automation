@@ -82,16 +82,16 @@ Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--
 ```
 SetFiles/
   Classic/
-    M15.set
-    H1.set
-    H4.set
+    M15/
+      TrendCurrent.set
+    H1/
+      TrendH4.set
   Multi/
-    M15.set
-    H1.set
-    H4.set
+    H1/
+      HTFH4.set
 ```
 
-Staged for MT5 as flat names like `Classic_M15.set` or `Multi_M15.set`.
+Staged for MT5 as flat names like `Classic_M15_TrendCurrent.set`.
 
 ### Flat
 
@@ -172,7 +172,7 @@ Single job:
 ```powershell
 python mt5_batch_optimize.py --validate-only `
   --symbols EURUSD --timeframes M15 `
-  --param-files SetFiles/Classic/M15.set `
+  --param-files SetFiles/Classic/M15/TrendCurrent.set `
   --from-date 2020.01.01 --to-date 2025.12.31 --verbose
 ```
 
@@ -261,7 +261,7 @@ python -m pytest -q
 
 - **Symbols:** 28 majors/crosses (EURUSD, GBPUSD, … CHFJPY) — override with `--symbols`
 - **Timeframes:** M15, H1, H4 — override with `--timeframes`
-- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15.set` or `Multi_M15.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
+- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_TrendH4.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
 - **Expert:** `MT5_EXPERT` env or `--expert`
 - **Forward mode:** `2` (built-in forward split; use `--forward-date` when `--forward-mode=4`)
 
