@@ -106,11 +106,16 @@ VALID_PERIODS = {
 
 def sets_for_chart_tf(chart_tf: str, available_names: list[str]) -> list[str]:
     tf = chart_tf.upper()
-    return sorted(
-        name
-        for name in available_names
-        if f"_{tf}_" in name.upper() or name.upper().startswith(f"{tf}_")
-    )
+
+    def matches(name: str) -> bool:
+        upper = name.upper()
+        return (
+            f"_{tf}_" in upper
+            or upper.startswith(f"{tf}_")
+            or upper.endswith(f"_{tf}.SET")
+        )
+
+    return sorted(name for name in available_names if matches(name))
 
 
 def default_param_file_paths(set_dir: Path) -> list[str]:

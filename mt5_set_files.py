@@ -40,14 +40,22 @@ def set_path_relative_to_dir(path: Path, set_dir: Path) -> Path:
     return Path(path.name)
 
 
+VALID_CHART_TFS = frozenset({
+    "M1", "M2", "M3", "M4", "M5", "M6", "M10", "M12", "M15", "M20", "M30",
+    "H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1", "W1", "MN1",
+})
+
+
 def discover_layout(set_dir: Path) -> SetLayout:
-    """Detect nested ``<strategy>/<chart_tf>/*.set`` vs flat ``*.set`` layout."""
+    """Detect strategy folders vs flat ``*.set`` at ``set_dir`` root."""
     if not set_dir.is_dir():
         return "flat"
 
     for child in set_dir.iterdir():
         if not child.is_dir():
             continue
+        if any(child.glob("*.set")):
+            return "nested"
         for sub in child.iterdir():
             if sub.is_dir() and any(sub.glob("*.set")):
                 return "nested"
@@ -72,7 +80,7 @@ def discover_strategies(set_dir: Path) -> tuple[str, ...]:
 
 
 def discover_chart_tfs(set_dir: Path) -> frozenset[str]:
-    """Chart timeframe folder names (nested layout only)."""
+    """Chart timeframe names from ``<strategy>/<tf>/*.set`` or ``<strategy>/<tf>.set``."""
     tfs: set[str] = set()
     if discover_layout(set_dir) != "nested":
         return frozenset()
@@ -84,6 +92,10 @@ def discover_chart_tfs(set_dir: Path) -> frozenset[str]:
         for child in root.iterdir():
             if child.is_dir() and any(child.glob("*.set")):
                 tfs.add(child.name.upper())
+            elif child.suffix.lower() == ".set":
+                stem = child.stem.upper()
+                if stem in VALID_CHART_TFS:
+                    tfs.add(stem)
     return frozenset(tfs)
 
 
@@ -100,8 +112,14 @@ def discover_set_files(set_dir: Path) -> dict[str, Path]:
         return index
 
     for strategy in discover_strategies(set_dir):
+        strategy_dir = set_dir / strategy
+        if not strategy_dir.is_dir():
+            continue
+        for path in sorted(strategy_dir.glob("*.set")):
+            rel = path.relative_to(set_dir)
+            index[flatten_set_tester_name(rel)] = path
         for chart_tf in sorted(discover_chart_tfs(set_dir)):
-            sub = set_dir / strategy / chart_tf
+            sub = strategy_dir / chart_tf
             if not sub.is_dir():
                 continue
             for path in sorted(sub.glob("*.set")):

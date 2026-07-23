@@ -82,14 +82,16 @@ Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--
 ```
 SetFiles/
   Classic/
-    M15/
-      TrendCurrent.set
+    M15.set
+    H1.set
+    H4.set
   Multi/
-    H1/
-      HTFH4.set
+    M15.set
+    H1.set
+    H4.set
 ```
 
-Staged for MT5 as flat names like `Classic_M15_TrendCurrent.set`.
+Staged for MT5 as flat names like `Classic_M15.set` or `Multi_M15.set`.
 
 ### Flat
 
@@ -170,7 +172,7 @@ Single job:
 ```powershell
 python mt5_batch_optimize.py --validate-only `
   --symbols EURUSD --timeframes M15 `
-  --param-files SetFiles/Classic/M15/TrendCurrent.set `
+  --param-files SetFiles/Classic/M15.set `
   --from-date 2020.01.01 --to-date 2025.12.31 --verbose
 ```
 
@@ -259,7 +261,7 @@ python -m pytest -q
 
 - **Symbols:** 28 majors/crosses (EURUSD, GBPUSD, … CHFJPY) — override with `--symbols`
 - **Timeframes:** M15, H1, H4 — override with `--timeframes`
-- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_TrendH4.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
+- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15.set` or `Multi_M15.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
 - **Expert:** `MT5_EXPERT` env or `--expert`
 - **Forward mode:** `2` (built-in forward split; use `--forward-date` when `--forward-mode=4`)
 
@@ -274,12 +276,12 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Forward 1/3, Custom max criterion | INI defaults: `ForwardMode=2`, `OptimizationCriterion=6`                                                                        |
 | Optimization engine               | Fast genetic (`--optimization 2`) on 1-minute OHLC (`--model 1`); use `--complete-opt` for slow complete + real ticks           |
 | Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                 |
-| Back gates (per row in scan)      | Sharpe **≥ 1.5** (`--min-sharpe`)                                                                                               |
-| Forward gates (per row)           | Forward Sharpe **≥ 1.5** (`--min-sharpe`), forward Result **≥ 3** (required)                                                    |
+| Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                               |
+| Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                    |
 | Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                   |
 | Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%** |
 | Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
-| Real-ticks validation gates       | Sharpe **≥ 1.5**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                     |
+| Real-ticks validation gates       | Sharpe **≥ 1.0**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                     |
 | Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **25**)                                   |
 
 Recovery, LR Correlation, Calmar, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates.
@@ -414,7 +416,7 @@ Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_run
 | `--validate-keep-top-k`       | `25`                                           | Top survivors per job after validation ranking               |
 | `--min-forward-result`        | `3`                                            | Forward Result gate (≥)                                      |
 | `--min-back-result`           | `6`                                            | Optimization Custom/Result gate (≥)                          |
-| `--min-sharpe`                | `1.5`                                          | Sharpe gate (≥) for back, forward, and real-ticks validation |
+| `--min-sharpe`                | `1.0`                                          | Sharpe gate (≥) for back, forward, and real-ticks validation |
 | `--min-validation-cagr`       | `10`                                           | Real-ticks CAGR % gate (≥)                                   |
 | `--target-equity-dd`          | `15.0`                                         | Linear RISK scaling target equity DD %                       |
 | `--min-scaled-risk`           | `1.0`                                          | Reject when scaled RISK is below this                        |
