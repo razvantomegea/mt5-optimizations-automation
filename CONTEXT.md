@@ -16,8 +16,8 @@ Nested layout example:
 
 ```
 SetFiles/
-  Classic/M15.set
-  Multi/M15.set
+  Classic/M15/TrendCurrent.set
+  Multi/H1/HTFH4.set
 ```
 
 ### Permutated parameter
