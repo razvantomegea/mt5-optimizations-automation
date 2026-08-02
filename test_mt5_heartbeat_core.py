@@ -47,10 +47,10 @@ def test_read_start_payload_normalizes_strategies() -> None:
         action="start",
         payload={
             **_start_payload(),
-            "strategies": ["classic", "MULTI"],
+            "strategies": ["classic", "MULTI", "swingha"],
         },
     )
-    assert config.strategies == ["Classic", "Multi"]
+    assert config.strategies == ["Classic", "Multi", "SwingHA"]
 
 
 def test_process_start_command_launches_optimize_without_blocking() -> None:

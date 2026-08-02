@@ -13,7 +13,7 @@ from pathlib import Path
 
 from mt5_workspace import PACKAGE_ROOT
 
-DEFAULT_TERMINAL = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+DEFAULT_TERMINAL = r"C:\Program Files\MetaTrader FTMO\terminal64.exe"
 ARTIFACT_PATHS = (
     "generated_configs",
     "reports",

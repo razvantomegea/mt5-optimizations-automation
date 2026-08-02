@@ -27,7 +27,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from mt5_paths import DEFAULT_BEST_DIR, resolve_set_dir
 
-DEFAULT_TERMINAL = Path(r"C:\Program Files\MetaTrader 5\terminal64.exe")
+DEFAULT_TERMINAL = Path(r"C:\Program Files\MetaTrader FTMO\terminal64.exe")
 DEFAULT_OUTPUT = Path("reports") / "step_usage.xlsx"
 METRIC_COLUMNS = [
     "validation_score",

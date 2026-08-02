@@ -12,7 +12,8 @@ from mt5_trade_echo_api import TradeEchoOptimizerApi
 
 DATE_PATTERN = re.compile(r"^\d{4}\.\d{2}\.\d{2}$")
 TOKEN_PATTERN = re.compile(r"^[A-Z0-9._]+$")
-ALLOWED_STRATEGIES = frozenset({"Classic", "Multi"})
+ALLOWED_STRATEGIES = frozenset({"Classic", "Multi", "SwingHA"})
+_ALLOWED_STRATEGIES_BY_LOWER = {s.lower(): s for s in ALLOWED_STRATEGIES}
 ALLOWED_OPTIMIZATION_MODES = frozenset({"1", "2"})
 SET_FILE_PATTERN = re.compile(r"^[A-Za-z0-9._-]+\.set$")
 
@@ -123,8 +124,8 @@ def _read_validated_strategies(payload: dict[str, Any]) -> list[str]:
     values = _read_required_array(payload, "strategies")
     normalized: list[str] = []
     for value in values:
-        strategy = value.strip().capitalize()
-        if strategy not in ALLOWED_STRATEGIES:
+        strategy = _ALLOWED_STRATEGIES_BY_LOWER.get(value.strip().lower())
+        if strategy is None:
             raise ValueError("start/resume strategies contains an invalid value")
         if strategy not in normalized:
             normalized.append(strategy)

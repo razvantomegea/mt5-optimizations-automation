@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+.env.local
 
 # EA-specific optimization grids — keep locally, never commit
 SetFiles/**

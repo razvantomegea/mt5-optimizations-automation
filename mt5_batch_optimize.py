@@ -318,6 +318,8 @@ def build_jobs(
 
 def infer_profile_name(path: Path, title: str) -> str:
     name = path.stem.lower() + " " + title.lower()
+    if "swingha" in name:
+        return "SwingHA"
     if "classic" in name:
         return "Classic"
     if "multi" in name or "mtf" in name:
@@ -1657,7 +1659,7 @@ def run_validate_only(args: argparse.Namespace) -> int:
 def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--terminal",
-        default=r"C:\Program Files\MetaTrader 5\terminal64.exe",
+        default=r"C:\Program Files\MetaTrader FTMO\terminal64.exe",
         help="Full path to terminal64.exe",
     )
     p.add_argument(
@@ -1792,7 +1794,7 @@ def main() -> int:
         "AUDNZD", "AUDJPY", "AUDCHF", "NZDJPY", "NZDCHF", "CHFJPY",
         "BTCUSD", "XAUUSD", "US500", "US500.cash", "SP500",
     ]
-    default_timeframes = ["M15", "H1", "H4"]
+    default_timeframes = ["M5", "M15", "H1", "H4"]
     p.add_argument("--symbols", nargs="+", default=default_symbols)
     p.add_argument("--timeframes", nargs="+", default=default_timeframes)
     p.add_argument("--param-files", nargs="+", default=None)

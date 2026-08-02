@@ -62,7 +62,7 @@ From **this folder**, run Python directly:
 | Workflow                       | Command                                                                                                                          |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | Dashboard worker               | `python mt5_heartbeat.py`                                                                                                        |
-| Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2016.07.02 --to-date 2026.07.02`                     |
+| Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2014.07.02 --to-date 2026.07.02`                     |
 | Batch optimize only            | add `--no-validate` to the optimize command                                                                                      |
 | Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                                                   |
 | Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                                             |
@@ -82,16 +82,29 @@ Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--
 ```
 SetFiles/
   Classic/
+    M5/
+      TrendCurrent.set
     M15/
       TrendCurrent.set
     H1/
       TrendH4.set
   Multi/
+    M5/
+      HTFM15.set
     H1/
       HTFH4.set
+  SwingHA/
+    M5/
+      TrendCurrent.set
+    M15/
+      TrendCurrent.set
+    D1/
+      TrendCurrent.set
+    W1/
+      TrendCurrent.set
 ```
 
-Staged for MT5 as flat names like `Classic_M15_TrendCurrent.set`.
+Staged for MT5 as flat names like `Classic_M15_TrendCurrent.set`. Chart TFs beyond the CLI default (M5/M15/H1/H4) are valid when matching folders exist under a strategy (e.g. SwingHA `D1`/`W1`).
 
 ### Flat
 
@@ -101,7 +114,7 @@ SetFiles/
   GBPUSD_H1_grid.set
 ```
 
-Restrict runs with `--strategies Classic Multi` (nested) or `--strategies Default` (flat).
+Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategies Default` (flat).
 
 ## Environment variables
 
@@ -145,7 +158,7 @@ Runs every discovered `.set` × symbol × timeframe, validates top passes after 
 python mt5_batch_optimize.py `
   --from-date 2020.01.01 `
   --to-date 2025.12.31 `
-  --terminal "C:\Program Files\MetaTrader 5\terminal64.exe"
+  --terminal "C:\Program Files\MetaTrader FTMO\terminal64.exe"
 ```
 
 ### Optimize only — skip validation
@@ -260,7 +273,7 @@ python -m pytest -q
 ## Default job matrix
 
 - **Symbols:** 28 majors/crosses (EURUSD, GBPUSD, … CHFJPY) — override with `--symbols`
-- **Timeframes:** M15, H1, H4 — override with `--timeframes`
+- **Timeframes:** M5, M15, H1, H4 — override with `--timeframes` (e.g. add `D1` `W1` when SwingHA SetFiles exist for those chart TFs)
 - **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_TrendH4.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
 - **Expert:** `MT5_EXPERT` env or `--expert`
 - **Forward mode:** `2` (built-in forward split; use `--forward-date` when `--forward-mode=4`)
@@ -361,7 +374,7 @@ You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
 ### Step 3 — Start a run from the dashboard
 
-Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi), and optimization mode (fast genetic vs slow complete), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
+Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), and optimization mode (fast genetic vs slow complete), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
 
 ### Step 4 — Monitor live results
 
@@ -398,36 +411,36 @@ Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_run
 
 ## Key CLI options
 
-| Option                        | Default                                        | Description                                                  |
-| ----------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| `--terminal`                  | `C:\Program Files\MetaTrader 5\terminal64.exe` | Path to MT5 terminal                                         |
-| `--mt5-data`                  | auto via `origin.txt`                          | MT5 data directory (or `--portable`)                         |
-| `--work-dir`                  | `.`                                            | Root for generated files and logs                            |
-| `--symbols` / `--timeframes`  | 28 symbols / M15 H1 H4                         | Job matrix; also filters validate-only                       |
-| `--param-files`               | all under `SetFiles/`                          | Optimization parameter files (auto-discovered)               |
-| `--strategies`                | all discovered                                 | Restrict to `Classic` and/or `Multi`                         |
-| `--from-date` / `--to-date`   | required (except validate-only)                | `YYYY.MM.DD`                                                 |
-| `--optimization`              | `2`                                            | Fast genetic; use `--complete-opt` for complete + real ticks |
-| `--model`                     | `1`                                            | 1-minute OHLC by default                                     |
-| `--complete-opt`              | off                                            | Shorthand: `--optimization 1` + `--model 4`                  |
-| `--criterion`                 | `6`                                            | Optimization criterion                                       |
-| `--forward-mode`              | `2`                                            | Forward testing mode                                         |
-| `--validate-top-n-per-symbol` | `25`                                           | Top passes per symbol to backtest                            |
-| `--validate-keep-top-k`       | `25`                                           | Top survivors per job after validation ranking               |
-| `--min-forward-result`        | `3`                                            | Forward Result gate (≥)                                      |
-| `--min-back-result`           | `6`                                            | Optimization Custom/Result gate (≥)                          |
-| `--min-sharpe`                | `1.0`                                          | Sharpe gate (≥) for back, forward, and real-ticks validation |
-| `--min-validation-cagr`       | `10`                                           | Real-ticks CAGR % gate (≥)                                   |
-| `--target-equity-dd`          | `15.0`                                         | Linear RISK scaling target equity DD %                       |
-| `--min-scaled-risk`           | `1.0`                                          | Reject when scaled RISK is below this                        |
-| `--max-equity-dd`             | `17.0`                                         | Max equity DD % after scaling                                |
-| `--no-risk-scaling`           | off                                            | Disable RISK scaling OHLC probe                              |
-| `--verbose`                   | off                                            | Mapping, distributions, rejection diagnostics                |
-| `--backtest-timeout-seconds`  | `300`                                          | Per validation backtest timeout                              |
-| `--best-dir`                  | `reports/Best`                                 | Survivor output folder                                       |
-| `--delay-seconds`             | `2`                                            | Pause between jobs                                           |
-| `--timeout-minutes`           | `0` (none)                                     | Per-job optimization timeout                                 |
-| `--resume`                    | off                                            | Skip jobs with existing reports                              |
+| Option                        | Default                                           | Description                                                  |
+| ----------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| `--terminal`                  | `C:\Program Files\MetaTrader FTMO\terminal64.exe` | Path to MT5 terminal                                         |
+| `--mt5-data`                  | auto via `origin.txt`                             | MT5 data directory (or `--portable`)                         |
+| `--work-dir`                  | `.`                                               | Root for generated files and logs                            |
+| `--symbols` / `--timeframes`  | 28 symbols / M5 M15 H1 H4                         | Job matrix; also filters validate-only                       |
+| `--param-files`               | all under `SetFiles/`                             | Optimization parameter files (auto-discovered)               |
+| `--strategies`                | all discovered                                    | Restrict to `Classic`, `Multi`, and/or `SwingHA`             |
+| `--from-date` / `--to-date`   | required (except validate-only)                   | `YYYY.MM.DD`                                                 |
+| `--optimization`              | `2`                                               | Fast genetic; use `--complete-opt` for complete + real ticks |
+| `--model`                     | `1`                                               | 1-minute OHLC by default                                     |
+| `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                  |
+| `--criterion`                 | `6`                                               | Optimization criterion                                       |
+| `--forward-mode`              | `2`                                               | Forward testing mode                                         |
+| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                            |
+| `--validate-keep-top-k`       | `25`                                              | Top survivors per job after validation ranking               |
+| `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                      |
+| `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                          |
+| `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation |
+| `--min-validation-cagr`       | `10`                                              | Real-ticks CAGR % gate (≥)                                   |
+| `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD %                       |
+| `--min-scaled-risk`           | `1.0`                                             | Reject when scaled RISK is below this                        |
+| `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling                                |
+| `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                              |
+| `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                |
+| `--backtest-timeout-seconds`  | `300`                                             | Per validation backtest timeout                              |
+| `--best-dir`                  | `reports/Best`                                    | Survivor output folder                                       |
+| `--delay-seconds`             | `2`                                               | Pause between jobs                                           |
+| `--timeout-minutes`           | `0` (none)                                        | Per-job optimization timeout                                 |
+| `--resume`                    | off                                               | Skip jobs with existing reports                              |
 
 Run `python mt5_batch_optimize.py --help` for the full list.
 
