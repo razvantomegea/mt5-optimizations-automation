@@ -436,7 +436,7 @@ Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_run
 | `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling                                |
 | `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                              |
 | `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                |
-| `--backtest-timeout-seconds`  | `300`                                             | Per validation backtest timeout                              |
+| `--backtest-timeout-seconds`  | `900`                                             | Per validation backtest timeout                              |
 | `--best-dir`                  | `reports/Best`                                    | Survivor output folder                                       |
 | `--delay-seconds`             | `2`                                               | Pause between jobs                                           |
 | `--timeout-minutes`           | `0` (none)                                        | Per-job optimization timeout                                 |

@@ -133,7 +133,7 @@ DEFAULT_RISK_ROUND_DECIMALS = 1
 REPORT_SUFFIXES = (".xml", ".htm", ".html")
 # MT5 truncates Report= values around 181-183 chars (181 OK, 183 drops chars).
 MT5_REPORT_PATH_MAX_LEN = 180
-DEFAULT_BACKTEST_TIMEOUT_SEC = 300
+DEFAULT_BACKTEST_TIMEOUT_SEC = 900
 DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
 DEFAULT_VALIDATE_KEEP_TOP_K = 25
 DEFAULT_RUNS_PER_SET_FILE = 1
@@ -1700,7 +1700,7 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--backtest-timeout-seconds",
         type=float,
         default=DEFAULT_BACKTEST_TIMEOUT_SEC,
-        help="Max seconds per validation backtest (default: 300)",
+        help="Max seconds per validation backtest (default: 900)",
     )
     p.add_argument(
         "--min-sharpe",
