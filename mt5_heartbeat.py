@@ -10,8 +10,14 @@ import sys
 import time
 from pathlib import Path
 
-from mt5_heartbeat_core import OptimizeConfig, OptimizerHeartbeat, create_optimizer_heartbeat
-from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
+from mt5_heartbeat_core import (
+    OptimizeConfig,
+    OptimizerHeartbeat,
+    SkipRobustnessCommand,
+    build_optimize_argv,
+    create_optimizer_heartbeat,
+)
+from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR, resolve_terminal
 from mt5_env import load_repo_env
 from mt5_portfolio_favorites import refresh_all_favorites_portfolio
 from mt5_trade_echo_api import TradeEchoOptimizerApi
@@ -48,24 +54,12 @@ class HeartbeatHost:
     def run_optimize(self, config: OptimizeConfig, run_id: str) -> None:
         argv = [
             sys.executable,
-            str(BATCH_SCRIPT),
-            "--from-date",
-            config.from_date,
-            "--to-date",
-            config.to_date,
-            "--symbols",
-            *config.symbols,
-            "--timeframes",
-            *config.timeframes,
-            "--strategies",
-            *config.strategies,
-            "--optimization",
-            config.optimization_mode,
-            "--expert",
-            self._resolve_expert(),
+            *build_optimize_argv(
+                config,
+                script_path=str(BATCH_SCRIPT),
+                expert=self._resolve_expert(),
+            ),
         ]
-        if config.resume:
-            argv.append("--resume")
 
         process = subprocess.Popen(argv, cwd=str(PACKAGE_ROOT), env=self._optimizer_env(run_id))
         self.set_child_process(process)
@@ -145,6 +139,72 @@ class HeartbeatHost:
             detail = result.stderr.strip() or result.stdout.strip()
             raise RuntimeError(detail or "Favorite script failed")
 
+    def run_skip_robustness(self, command: SkipRobustnessCommand) -> None:
+        from mt5_set_files import resolve_mt5_data_dir
+        from mt5_skip_robustness import (
+            DEFAULT_CURRENCY,
+            DEFAULT_DEPOSIT,
+            DEFAULT_LEVERAGE,
+            DEFAULT_SKIP_ROBUSTNESS_TIMEOUT_SEC,
+            run_skip_robustness_job,
+        )
+
+        best_set = DEFAULT_BEST_DIR / "sets" / command.set_file
+        fav_set = DEFAULT_FAVORITES_DIR / "sets" / command.set_file
+        if best_set.is_file():
+            source = best_set
+        elif fav_set.is_file():
+            source = fav_set
+        else:
+            raise RuntimeError(f"Set file not found for skip robustness: {command.set_file}")
+
+        terminal = resolve_terminal()
+        assert terminal is not None
+        portable = os.environ.get("MT5_PORTABLE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        data_dir = resolve_mt5_data_dir(
+            terminal=terminal,
+            portable=portable,
+            mt5_data=os.environ.get("MT5_DATA") or None,
+        )
+
+        gate = run_skip_robustness_job(
+            set_file=source,
+            symbol=command.symbol,
+            timeframe=command.timeframe,
+            from_date=command.from_date,
+            to_date=command.to_date,
+            baseline_dd_pct=command.baseline_dd,
+            scaled_risk=command.scaled_risk,
+            expert=self._resolve_expert(),
+            best_dir=DEFAULT_BEST_DIR,
+            favorites_dir=DEFAULT_FAVORITES_DIR,
+            work_dir=PACKAGE_ROOT,
+            terminal=terminal,
+            install_dir=terminal.parent,
+            data_dir=data_dir,
+            portable=portable,
+            result_id=command.result_id,
+            unfavorite_on_fail=True,
+            deposit=DEFAULT_DEPOSIT,
+            currency=DEFAULT_CURRENCY,
+            leverage=DEFAULT_LEVERAGE,
+            timeout_seconds=DEFAULT_SKIP_ROBUSTNESS_TIMEOUT_SEC,
+        )
+        if gate.incomplete:
+            status = "INCOMPLETE"
+        elif gate.passed:
+            status = "PASS"
+        else:
+            status = "FAIL"
+        log(
+            f"Skip robustness {status} combos={gate.combo_count} "
+            f"max_DD={gate.max_combo_dd_pct} ceiling={gate.ceiling_dd_pct}"
+        )
+
     def run_portfolio_build(self) -> None:
         load_repo_env()
         assert_optimizer_access()
@@ -195,6 +255,9 @@ def build_host() -> HeartbeatHost:
     def run_favorite(set_file: str, symbol: str, unfavorite: bool) -> None:
         host_holder["host"].run_favorite(set_file, symbol, unfavorite)
 
+    def run_skip_robustness(command: SkipRobustnessCommand) -> None:
+        host_holder["host"].run_skip_robustness(command)
+
     def run_portfolio_build() -> None:
         host_holder["host"].run_portfolio_build()
 
@@ -205,6 +268,7 @@ def build_host() -> HeartbeatHost:
         run_clean=run_clean,
         run_favorite=run_favorite,
         run_portfolio_build=run_portfolio_build,
+        run_skip_robustness=run_skip_robustness,
         log=log,
     )
     host = HeartbeatHost(heartbeat)

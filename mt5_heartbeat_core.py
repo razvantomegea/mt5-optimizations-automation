@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from collections.abc import Callable
@@ -27,6 +28,19 @@ class OptimizeConfig:
     strategies: list[str]
     optimization_mode: str
     resume: bool
+    skip_robustness: bool = True
+
+
+@dataclass(frozen=True)
+class SkipRobustnessCommand:
+    set_file: str
+    symbol: str
+    timeframe: str
+    from_date: str
+    to_date: str
+    baseline_dd: float
+    scaled_risk: float | None
+    result_id: str
 
 
 LogFn = Callable[[str], None]
@@ -35,6 +49,7 @@ RunStopFn = Callable[[], None]
 RunCleanFn = Callable[[], None]
 RunFavoriteFn = Callable[[str, str, bool], None]
 RunPortfolioBuildFn = Callable[[], None]
+RunSkipRobustnessFn = Callable[[SkipRobustnessCommand], None]
 
 
 class WorkerStore(Protocol):
@@ -82,6 +97,8 @@ def build_optimize_argv(config: OptimizeConfig, *, script_path: str, expert: str
     ]
     if config.resume:
         argv.append("--resume")
+    if not config.skip_robustness:
+        argv.append("--no-skip-robustness")
     return argv
 
 
@@ -139,6 +156,16 @@ def _read_validated_optimization_mode(payload: dict[str, Any]) -> str:
     return value.strip()
 
 
+def _read_skip_robustness(payload: dict[str, Any]) -> bool:
+    """Optional start/resume flag; default True (run auto top-5 Skip Robustness)."""
+    if "skipRobustness" not in payload:
+        return True
+    value = payload.get("skipRobustness")
+    if not isinstance(value, bool):
+        raise ValueError("start/resume skipRobustness must be a boolean")
+    return value
+
+
 def read_start_payload(*, action: str, payload: dict[str, Any]) -> OptimizeConfig:
     return OptimizeConfig(
         from_date=_read_validated_date(payload, "fromDate"),
@@ -148,6 +175,7 @@ def read_start_payload(*, action: str, payload: dict[str, Any]) -> OptimizeConfi
         strategies=_read_validated_strategies(payload),
         optimization_mode=_read_validated_optimization_mode(payload),
         resume=action == "resume",
+        skip_robustness=_read_skip_robustness(payload),
     )
 
 
@@ -178,6 +206,48 @@ def read_favorite_payload(payload: dict[str, Any]) -> tuple[str, str]:
     return set_file.strip(), normalized_symbol
 
 
+def read_skip_robustness_payload(payload: dict[str, Any]) -> SkipRobustnessCommand:
+    set_file, symbol = read_favorite_payload(payload)
+    timeframe = str(payload.get("timeframe") or "").strip().upper()
+    if not TOKEN_PATTERN.match(timeframe):
+        raise ValueError("skip_robustness requires a valid timeframe")
+    from_date = str(payload.get("fromDate") or "").strip()
+    to_date = str(payload.get("toDate") or "").strip()
+    if not DATE_PATTERN.match(from_date) or not DATE_PATTERN.match(to_date):
+        raise ValueError("skip_robustness requires fromDate/toDate as YYYY.MM.DD")
+    baseline_raw = payload.get("baselineDd")
+    try:
+        baseline_dd = float(baseline_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("skip_robustness requires baselineDd") from exc
+    if not math.isfinite(baseline_dd):
+        raise ValueError("skip_robustness requires baselineDd")
+    if baseline_dd <= 0:
+        raise ValueError("skip_robustness requires baselineDd")
+    scaled_raw = payload.get("scaledRisk")
+    scaled_risk: float | None
+    if scaled_raw is None:
+        scaled_risk = None
+    else:
+        try:
+            scaled_risk = float(scaled_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("skip_robustness scaledRisk must be a finite number") from exc
+        if not math.isfinite(scaled_risk):
+            raise ValueError("skip_robustness scaledRisk must be a finite number")
+    result_id = str(payload.get("resultId") or "").strip()
+    return SkipRobustnessCommand(
+        set_file=set_file,
+        symbol=symbol,
+        timeframe=timeframe,
+        from_date=from_date,
+        to_date=to_date,
+        baseline_dd=baseline_dd,
+        scaled_risk=scaled_risk,
+        result_id=result_id,
+    )
+
+
 class OptimizerHeartbeat:
     def __init__(
         self,
@@ -188,6 +258,7 @@ class OptimizerHeartbeat:
         run_clean: RunCleanFn,
         run_favorite: RunFavoriteFn,
         run_portfolio_build: RunPortfolioBuildFn | None = None,
+        run_skip_robustness: RunSkipRobustnessFn | None = None,
         log: LogFn | None = None,
         random_id: Callable[[], str] | None = None,
     ) -> None:
@@ -197,10 +268,12 @@ class OptimizerHeartbeat:
         self._run_clean = run_clean
         self._run_favorite = run_favorite
         self._run_portfolio_build = run_portfolio_build or (lambda: None)
+        self._run_skip_robustness = run_skip_robustness or (lambda _payload: None)
         self._log = log or (lambda _message: None)
         self._random_id = random_id or (lambda: str(uuid.uuid4()))
         self._child_busy = False
         self._active_run: Any = None
+
 
     def set_child_busy(self, busy: bool) -> None:
         self._child_busy = busy
@@ -247,6 +320,9 @@ class OptimizerHeartbeat:
             if action in {"favorite", "unfavorite"}:
                 self._process_favorite_command(command_id, action, payload)
                 return
+            if action == "skip_robustness":
+                self._process_skip_robustness_command(command_id, payload)
+                return
             raise ValueError(f"Unknown action: {action}")
         except Exception as error:  # noqa: BLE001 — mirror JS failCommand
             message = str(error)
@@ -273,6 +349,38 @@ class OptimizerHeartbeat:
         except Exception as error:  # noqa: BLE001 - keep favorite move result
             self._log(f"Portfolio refresh failed: {error}")
         self._worker_store.mark_command_done(command_id=command_id, status="done")
+
+    def _process_skip_robustness_command(
+        self,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if self._child_busy:
+            raise RuntimeError("Cannot run skip_robustness while optimizer child is busy")
+        parsed = read_skip_robustness_payload(payload)
+        self._launch_skip_robustness(parsed)
+        self._worker_store.mark_command_done(command_id=command_id, status="done")
+
+    def _launch_skip_robustness(self, parsed: SkipRobustnessCommand) -> None:
+        import threading
+
+        def runner() -> None:
+            try:
+                self._run_skip_robustness(parsed)
+                try:
+                    self._run_portfolio_build()
+                except Exception as error:  # noqa: BLE001
+                    self._log(f"Portfolio refresh failed: {error}")
+            except Exception as error:  # noqa: BLE001
+                self._log(f"Skip robustness exited abnormally: {error}")
+            finally:
+                self.set_child_busy(False)
+                self._active_run = None
+
+        self.set_child_busy(True)
+        thread = threading.Thread(target=runner, daemon=True)
+        self._active_run = thread
+        thread.start()
 
     def _process_start_command(
         self,
@@ -343,6 +451,7 @@ def create_optimizer_heartbeat(
     run_clean: RunCleanFn,
     run_favorite: RunFavoriteFn | None = None,
     run_portfolio_build: RunPortfolioBuildFn | None = None,
+    run_skip_robustness: RunSkipRobustnessFn | None = None,
     log: LogFn | None = None,
     random_id: Callable[[], str] | None = None,
 ) -> OptimizerHeartbeat:
@@ -353,6 +462,7 @@ def create_optimizer_heartbeat(
         run_clean=run_clean,
         run_favorite=run_favorite or (lambda _set_file, _symbol, _unfavorite: None),
         run_portfolio_build=run_portfolio_build or (lambda: None),
+        run_skip_robustness=run_skip_robustness,
         log=log,
         random_id=random_id,
     )

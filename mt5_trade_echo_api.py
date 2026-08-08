@@ -163,6 +163,31 @@ class TradeEchoOptimizerApi:
     def clear_optimization_data(self) -> None:
         self._request("POST", "/api/optimizer/worker", body={"op": "clearData"})
 
+    def apply_skip_robustness(
+        self,
+        *,
+        result_id: str,
+        passed: bool,
+        reject_reason: str | None,
+        max_combo_dd_pct: float | None,
+        combo_count: int,
+        baseline_dd_pct: float,
+        ceiling_dd_pct: float,
+    ) -> None:
+        body: dict[str, Any] = {
+            "op": "applySkipRobustness",
+            "resultId": result_id,
+            "passed": passed,
+            "comboCount": combo_count,
+            "baselineDdPct": baseline_dd_pct,
+            "ceilingDdPct": ceiling_dd_pct,
+        }
+        if reject_reason is not None:
+            body["rejectReason"] = reject_reason
+        if max_combo_dd_pct is not None:
+            body["maxComboDdPct"] = max_combo_dd_pct
+        self._request("POST", "/api/optimizer/worker", body=body)
+
     def claim_pending_command(self, *, interruptible_only: bool = False) -> dict[str, Any] | None:
         payload = self._request(
             "POST",

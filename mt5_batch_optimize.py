@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import itertools
 import os
 import re
@@ -45,8 +44,29 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_env import load_repo_env
-from mt5_paths import DEFAULT_BEST_DIR, resolve_set_dir
+from mt5_paths import DEFAULT_BEST_DIR, default_terminal_arg, resolve_set_dir
+from mt5_report_completeness import (
+    back_xml_path,
+    base_report_path,
+    delete_incomplete_forward_reports,
+    incomplete_forward_reports,
+)
+from mt5_survivor_rank import (
+    is_validation_pass as _is_validation_pass,
+    row_is_survivor as _row_is_survivor,
+    validation_rank_key as _validation_rank_key,
+)
+from mt5_tester_runtime import (
+    MT5_REPORT_PATH_MAX_LEN,
+    REPORT_SUFFIXES,
+    build_tester_report_target,
+    format_set_param_value,
+    resolve_report_path,
+    stop_running_terminal,
+    write_ini,
+)
 from mt5_opt_report import (
     ColumnMapping,
     ColumnOverrides,
@@ -130,10 +150,7 @@ DEFAULT_OPTIMIZATION_MODEL = "1"
 COMPLETE_OPTIMIZATION_MODE = "1"
 COMPLETE_OPTIMIZATION_MODEL = "4"
 DEFAULT_RISK_ROUND_DECIMALS = 1
-REPORT_SUFFIXES = (".xml", ".htm", ".html")
-# MT5 truncates Report= values around 181-183 chars (181 OK, 183 drops chars).
-MT5_REPORT_PATH_MAX_LEN = 180
-DEFAULT_BACKTEST_TIMEOUT_SEC = 900
+DEFAULT_BACKTEST_TIMEOUT_SEC = 1800
 DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
 DEFAULT_VALIDATE_KEEP_TOP_K = 25
 DEFAULT_RUNS_PER_SET_FILE = 1
@@ -263,22 +280,6 @@ def render_progress(done: int, total: int, width: int = 28) -> str:
     return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
 
 
-def write_ini(path: Path, cfg: dict[str, Any]) -> None:
-    lines = ["[Tester]"]
-    ordered_keys = [
-        "Expert", "ExpertParameters", "Symbol", "Period", "Login", "Model",
-        "ExecutionMode", "Optimization", "OptimizationCriterion", "FromDate", "ToDate",
-        "ForwardMode", "ForwardDate", "Report", "ReplaceReport", "ShutdownTerminal",
-        "Deposit", "Currency", "Leverage", "UseLocal", "UseRemote", "UseCloud",
-        "Visual", "Port",
-    ]
-    for key in ordered_keys:
-        value = cfg.get(key)
-        if value not in (None, ""):
-            lines.append(f"{key}={value}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
 def param_files_for_timeframe(timeframe: str, available_names: list[str]) -> list[str]:
     return sets_for_chart_tf(timeframe, available_names)
 
@@ -370,14 +371,6 @@ def stage_param_files(
     return flat_names, set_index
 
 
-def format_set_param_value(v: Any) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if v is None:
-        return ""
-    return str(v)
-
-
 def apply_candidate_params(set_values: dict[str, str], params: dict[str, Any]) -> None:
     for key, value in params.items():
         if value is None:
@@ -409,60 +402,6 @@ def write_set_file(path: Path, values: dict[str, Any]) -> None:
     lines = [f"{k}={format_set_param_value(v)}" for k, v in values.items()]
     content = "\r\n".join(lines) + "\r\n"
     path.write_bytes(b"\xff\xfe" + content.encode("utf-16-le"))
-
-
-def stop_running_terminal() -> None:
-    """MT5 ignores [Tester] when another terminal64.exe instance is already running."""
-    if sys.platform != "win32":
-        return
-    subprocess.run(
-        ["taskkill", "/IM", "terminal64.exe", "/F"],
-        capture_output=True,
-        check=False,
-    )
-
-
-def resolve_report_path(report_base: Path) -> Path:
-    for suffix in REPORT_SUFFIXES:
-        candidate = Path(str(report_base) + suffix)
-        if candidate.is_file():
-            return candidate
-    # MT5 sometimes writes Report= path with no .htm/.html/.xml suffix.
-    if report_base.is_file():
-        return report_base
-    tried = ", ".join(
-        [str(report_base) + suffix for suffix in REPORT_SUFFIXES] + [str(report_base)]
-    )
-    raise FileNotFoundError(f"Backtest report not generated (tried: {tried})")
-
-
-def build_tester_report_target(
-    *,
-    data_dir: Path,
-    work_dir: Path,
-    stem: str,
-) -> tuple[Path, str]:
-    """Return (report_base, Report= relpath) within MT5's Report= length limit."""
-    reports_dir = work_dir / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    report_base = reports_dir / stem
-    rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
-    if len(rel) <= MT5_REPORT_PATH_MAX_LEN:
-        return report_base, rel
-
-    short_dir = data_dir / "te_bt"
-    short_dir.mkdir(parents=True, exist_ok=True)
-    report_base = short_dir / stem
-    rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
-    if len(rel) > MT5_REPORT_PATH_MAX_LEN:
-        compact = hashlib.sha1(stem.encode("utf-8")).hexdigest()[:20]
-        report_base = short_dir / compact
-        rel = os.path.relpath(report_base, data_dir).replace("/", "\\")
-    if len(rel) > MT5_REPORT_PATH_MAX_LEN:
-        raise ValueError(
-            f"MT5 Report path still too long ({len(rel)} > {MT5_REPORT_PATH_MAX_LEN}): {rel}"
-        )
-    return report_base, rel
 
 
 def optimization_xml_paths(xml_dir: Path) -> list[Path]:
@@ -791,7 +730,7 @@ def resolve_validation_risk(
     risk_scaling: RiskScalingConfig,
     verbose: bool,
 ) -> RiskScalingResult:
-    baseline_risk = to_float(set_values.get("RISK"), 1.0) or 1.0
+    baseline_risk = to_float(set_values.get(RISK_INPUT_NAME), 1.0) or 1.0
 
     try:
         baseline_report = run_single_backtest(**backtest_kwargs, model=1)
@@ -807,7 +746,7 @@ def resolve_validation_risk(
 
     if verbose:
         print(
-            f"    risk scaling step 1: RISK={baseline_risk} "
+            f"    risk scaling step 1: {RISK_INPUT_NAME}={baseline_risk} "
             f"equity_DD={baseline_dd:.4f}%"
         )
 
@@ -847,7 +786,7 @@ def resolve_validation_risk(
             baseline_equity_dd_pct=baseline_dd,
             scaled_risk=scaled_risk,
         )
-    set_input_value(set_values, "RISK", scaled_risk)
+    set_input_value(set_values, RISK_INPUT_NAME, scaled_risk)
     write_set_file(generated_set, set_values)
     shutil.copy2(generated_set, tester_profiles_dir / generated_set.name)
 
@@ -868,7 +807,7 @@ def resolve_validation_risk(
     max_scaled_dd = risk_scaling.max_scaled_equity_dd_pct
     if verbose:
         print(
-            f"    risk scaling step 2: RISK={scaled_risk} "
+            f"    risk scaling step 2: {RISK_INPUT_NAME}={scaled_risk} "
             f"equity_DD={scaled_dd:.4f}% "
             f"(target {risk_scaling.target_equity_dd_pct}%, max {max_scaled_dd}%)"
         )
@@ -1021,30 +960,12 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def _validation_rank_key(row: dict[str, Any]) -> tuple[float, float, int]:
-    return (
-        to_float(row.get("validation_score")),
-        to_float(row.get("validation_recovery")),
-        to_int(row.get("pass_id")),
-    )
-
-
-def _is_validation_pass(row: dict[str, Any]) -> bool:
-    value = row.get("validation_pass")
-    return value is True or value in ("True", "true", "1", 1)
-
-
 def _apply_top_k_ranking(rows: list[dict[str, Any]], keep_top_k: int) -> None:
     survivors = [r for r in rows if _is_validation_pass(r)]
     survivors.sort(key=_validation_rank_key, reverse=True)
     keep_ids = {id(r) for r in survivors[:keep_top_k]}
     for row in rows:
         row["keep"] = id(row) in keep_ids
-
-
-def _row_is_survivor(row: dict[str, Any]) -> bool:
-    keep = row.get("keep")
-    return keep is True or keep in ("True", "true", "1", 1)
 
 
 def _prepare_best_dir(best_dir: Path, *, reset: bool) -> None:
@@ -1122,19 +1043,19 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         print(f"ERROR: {cfg.xml_path.name}: {exc}", file=sys.stderr)
         return []
 
+    if (
+        fwd_info.forward_file_status == "missing"
+        and not fwd_info.has_inline_forward_columns
+    ):
+        raise FileNotFoundError(
+            f"Forward report missing for {cfg.xml_path.name}: expected "
+            f"{cfg.xml_path.stem}.forward.xml. Skipping validation; re-run "
+            "optimization (partial back reports are deleted automatically before re-opt)."
+        )
+
     if not cands:
         print(f"No qualifying candidates for {cfg.xml_path.name}")
         print_selection_stats(selection_stats, cfg.selection_thresholds)
-        if (
-            selection_stats.accepted == 0
-            and fwd_info.forward_file_status == "missing"
-            and not fwd_info.has_inline_forward_columns
-        ):
-            print(
-                "  WARNING: forward selection rejected all rows because forward "
-                "metrics are missing. Re-run optimization or delete partial "
-                "reports before using --resume."
-            )
         return []
 
     selected = top_per_symbol(cands, cfg.top_n)
@@ -1219,7 +1140,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         }
 
         try:
-            baseline_risk = to_float(set_values.get("RISK"), 1.0) or 1.0
+            baseline_risk = to_float(set_values.get(RISK_INPUT_NAME), 1.0) or 1.0
             scaled_risk_value: float | None = baseline_risk
             baseline_equity_dd: float | None = None
             scaled_ohlc_equity_dd: float | None = None
@@ -1634,22 +1555,34 @@ def run_validate_only(args: argparse.Namespace) -> int:
     total_survivors = 0
 
     for xml_path in xml_paths:
-        rows = validate_job(_validate_job_config_from_args(
-            args,
-            terminal=terminal,
-            install_dir=install_dir,
-            data_dir=data_dir,
-            work_dir=work_dir,
-            set_dir=set_dir,
-            set_index=set_index,
-            xml_path=xml_path,
-            best_dir=best_dir,
-            reset_best_dir=not best_dir_initialized,
-            append_summary=best_dir_initialized,
-        ))
+        report_path = base_report_path(xml_path)
+        if incomplete_forward_reports(report_path, forward_mode=args.forward_mode):
+            print(
+                f"Skipping validation for {xml_path.name}: missing .forward.xml "
+                "(re-run optimization first)"
+            )
+            continue
+        try:
+            validate_xml = back_xml_path(xml_path)
+            rows = validate_job(_validate_job_config_from_args(
+                args,
+                terminal=terminal,
+                install_dir=install_dir,
+                data_dir=data_dir,
+                work_dir=work_dir,
+                set_dir=set_dir,
+                set_index=set_index,
+                xml_path=validate_xml,
+                best_dir=best_dir,
+                reset_best_dir=not best_dir_initialized,
+                append_summary=best_dir_initialized,
+            ))
+        except FileNotFoundError as exc:
+            print(f"Skipping validation for {xml_path.name}: {exc}")
+            continue
         survivors = sum(1 for r in rows if r.get("keep"))
         total_survivors += survivors
-        print(f"Validated {xml_path.stem}: selected={len(rows)} survivors={survivors}")
+        print(f"Validated {validate_xml.stem}: selected={len(rows)} survivors={survivors}")
         best_dir_initialized = True
 
     print(f"Finished validate-only. Total survivors={total_survivors} Best folder: {best_dir}")
@@ -1659,8 +1592,8 @@ def run_validate_only(args: argparse.Namespace) -> int:
 def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--terminal",
-        default=r"C:\Program Files\MetaTrader FTMO\terminal64.exe",
-        help="Full path to terminal64.exe",
+        default=default_terminal_arg(),
+        help="Full path to terminal64.exe (or set MT5_TERMINAL)",
     )
     p.add_argument(
         "--expert",
@@ -1700,7 +1633,7 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--backtest-timeout-seconds",
         type=float,
         default=DEFAULT_BACKTEST_TIMEOUT_SEC,
-        help="Max seconds per validation backtest (default: 900)",
+        help="Max seconds per validation backtest (default: 1800)",
     )
     p.add_argument(
         "--min-sharpe",
@@ -1784,6 +1717,11 @@ def main() -> int:
         "--no-validate",
         action="store_true",
         help="Run optimizations only, without per-job validation",
+    )
+    p.add_argument(
+        "--no-skip-robustness",
+        action="store_true",
+        help="After validate, skip auto top-5 Skip Robustness stress",
     )
 
     default_symbols = [
@@ -2011,6 +1949,7 @@ def _run_batch_jobs(
     db_reporter: Any | None,
 ) -> int:
     completed_count = 0
+    stress_failures = 0
     best_initialized = best_dir_initialized
 
     for job in jobs:
@@ -2045,6 +1984,17 @@ def _run_batch_jobs(
                 status=job.status,
             )
             continue
+
+        deleted_partial = delete_incomplete_forward_reports(
+            job.report_path,
+            forward_mode=args.forward_mode,
+        )
+        if deleted_partial:
+            names = ", ".join(p.name for p in deleted_partial)
+            print(
+                f"[{job.index}/{len(jobs)}] deleted incomplete report(s) "
+                f"(missing .forward.xml): {names}"
+            )
 
         ini_cfg = {
             "Expert": args.expert,
@@ -2112,8 +2062,19 @@ def _run_batch_jobs(
             job.duration_sec = round(time.time() - started, 2)
 
         if job.status != "timeout":
-            report_exists = any(p.exists() for p in [report_xml, report_htm, report_forward_xml, report_forward_htm])
-            if proc.returncode == 0 and report_exists:
+            report_exists = any(
+                p.exists()
+                for p in [report_xml, report_htm, report_forward_xml, report_forward_htm]
+            )
+            if incomplete_forward_reports(
+                job.report_path,
+                forward_mode=args.forward_mode,
+            ):
+                job.status = "incomplete_forward"
+                job.error = (
+                    "Back report present but .forward.xml missing; skipping validation"
+                )
+            elif proc.returncode == 0 and report_exists:
                 job.status = "done"
             elif report_exists:
                 job.status = "done_with_nonzero_exit"
@@ -2168,17 +2129,60 @@ def _run_batch_jobs(
                     fallback_timeframe=job.timeframe,
                     db_reporter=db_reporter,
                 ))
+            except FileNotFoundError as exc:
+                print(f"  Skipping validation: {exc}")
+                time.sleep(args.delay_seconds)
+                continue
             except Exception as exc:
                 print(f"ERROR: validation failed for {job.report_stem}: {exc}", file=sys.stderr)
                 return 1
             survivors = sum(1 for r in rows if r.get("keep"))
             print(f"Validated {job.report_stem}: selected={len(rows)} survivors={survivors}")
             best_initialized = True
+            if survivors > 0 and not getattr(args, "no_skip_robustness", False):
+                try:
+                    from mt5_skip_robustness import stress_auto_top_survivors
+
+                    timeout = (
+                        0.0
+                        if args.timeout_minutes <= 0
+                        else args.timeout_minutes * 60.0
+                    )
+                    stress_auto_top_survivors(
+                        rows=rows,
+                        from_date=args.from_date,
+                        to_date=args.to_date,
+                        expert=args.expert,
+                        best_dir=best_dir,
+                        work_dir=work_dir,
+                        terminal=terminal,
+                        install_dir=install_dir,
+                        data_dir=data_dir,
+                        deposit=args.deposit,
+                        currency=args.currency,
+                        leverage=args.leverage,
+                        portable=args.portable,
+                        timeout_seconds=timeout,
+                        db_reporter=db_reporter,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"ERROR: skip robustness failed for {job.report_stem}: {exc}",
+                        file=sys.stderr,
+                    )
+                    # Survivors already validated — continue batch, fail at end.
+                    stress_failures += 1
 
         time.sleep(args.delay_seconds)
 
     total_elapsed = time.time() - batch_started
     print(f"Finished {len(jobs)} jobs in {format_seconds(total_elapsed)}. Log: {run_log_path}")
+    if stress_failures:
+        print(
+            f"ERROR: skip robustness failed for {stress_failures} job(s)",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

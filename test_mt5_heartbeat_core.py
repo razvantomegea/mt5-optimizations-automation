@@ -10,6 +10,7 @@ from mt5_heartbeat_core import (
     build_optimize_argv,
     create_optimizer_heartbeat,
     read_favorite_payload,
+    read_skip_robustness_payload,
     read_start_payload,
 )
 
@@ -42,6 +43,64 @@ def test_build_optimize_argv_includes_resume_flag() -> None:
     assert argv[-1] == "--resume"
 
 
+def test_build_optimize_argv_includes_no_skip_robustness() -> None:
+    config = OptimizeConfig(
+        from_date="2016.07.02",
+        to_date="2026.07.02",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        strategies=["Classic"],
+        optimization_mode="2",
+        resume=False,
+        skip_robustness=False,
+    )
+    argv = build_optimize_argv(
+        config,
+        script_path="mt5_batch_optimize.py",
+        expert="MyEA.ex5",
+    )
+    assert "--no-skip-robustness" in argv
+
+
+def test_build_optimize_argv_omits_no_skip_robustness_by_default() -> None:
+    config = OptimizeConfig(
+        from_date="2016.07.02",
+        to_date="2026.07.02",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        strategies=["Classic"],
+        optimization_mode="2",
+        resume=False,
+    )
+    argv = build_optimize_argv(
+        config,
+        script_path="mt5_batch_optimize.py",
+        expert="MyEA.ex5",
+    )
+    assert "--no-skip-robustness" not in argv
+    assert config.skip_robustness is True
+
+
+def test_build_optimize_argv_resume_and_no_skip_robustness() -> None:
+    config = OptimizeConfig(
+        from_date="2016.07.02",
+        to_date="2026.07.02",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        strategies=["Classic"],
+        optimization_mode="1",
+        resume=True,
+        skip_robustness=False,
+    )
+    argv = build_optimize_argv(
+        config,
+        script_path="mt5_batch_optimize.py",
+        expert="MyEA.ex5",
+    )
+    assert "--resume" in argv
+    assert "--no-skip-robustness" in argv
+
+
 def test_read_start_payload_normalizes_strategies() -> None:
     config = read_start_payload(
         action="start",
@@ -51,7 +110,25 @@ def test_read_start_payload_normalizes_strategies() -> None:
         },
     )
     assert config.strategies == ["Classic", "Multi", "SwingHA"]
+    assert config.skip_robustness is True
 
+
+def test_read_start_payload_skip_robustness_false() -> None:
+    config = read_start_payload(
+        action="start",
+        payload={**_start_payload(), "skipRobustness": False},
+    )
+    assert config.skip_robustness is False
+
+
+def test_read_start_payload_rejects_non_bool_skip_robustness() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="skipRobustness"):
+        read_start_payload(
+            action="start",
+            payload={**_start_payload(), "skipRobustness": "false"},
+        )
 
 def test_process_start_command_launches_optimize_without_blocking() -> None:
     worker_store = MagicMock()
@@ -260,3 +337,62 @@ def test_poll_commands_fails_invalid_resume_payload() -> None:
         status="failed",
         error=ANY,
     )
+
+
+def _skip_payload() -> dict:
+    return {
+        "setFile": "foo.set",
+        "symbol": "EURUSD",
+        "timeframe": "H1",
+        "fromDate": "2016.07.02",
+        "toDate": "2026.07.02",
+        "baselineDd": 11.4,
+        "scaledRisk": 2.0,
+        "resultId": "abc",
+    }
+
+
+def test_read_skip_robustness_payload_rejects_non_positive_baseline() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="baselineDd"):
+        read_skip_robustness_payload({**_skip_payload(), "baselineDd": 0})
+    with pytest.raises(ValueError, match="baselineDd"):
+        read_skip_robustness_payload({**_skip_payload(), "baselineDd": -1.5})
+
+
+def test_read_skip_robustness_payload_accepts_positive_baseline() -> None:
+    parsed = read_skip_robustness_payload(_skip_payload())
+    assert parsed.baseline_dd == 11.4
+    assert parsed.scaled_risk == 2.0
+
+
+def test_process_skip_robustness_launches_without_blocking() -> None:
+    worker_store = MagicMock()
+    run_skip = MagicMock()
+    run_portfolio = MagicMock()
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=MagicMock(),
+        run_favorite=MagicMock(),
+        run_portfolio_build=run_portfolio,
+        run_skip_robustness=run_skip,
+    )
+
+    heartbeat.process_command(
+        {
+            "id": "cmd-skip",
+            "action": "skip_robustness",
+            "payload": _skip_payload(),
+        }
+    )
+
+    worker_store.mark_command_done.assert_called_with(
+        command_id="cmd-skip",
+        status="done",
+    )
+    heartbeat.await_active_run()
+    run_skip.assert_called_once()
+    run_portfolio.assert_called_once()

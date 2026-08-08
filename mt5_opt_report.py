@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import re
 import statistics
+from decimal import Decimal, InvalidOperation
 from defusedxml import ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -313,11 +315,36 @@ def to_float(v: Any, default: float | None = None) -> float | None:
         return default
 
 
-def to_int(v: Any, default: int = 0) -> int:
+def parse_optional_int(v: Any) -> int | None:
+    """Return an int when ``v`` is integral; else ``None`` (no silent default)."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, str) and not v.strip():
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        if not math.isfinite(v) or not v.is_integer():
+            return None
+        try:
+            return int(v)
+        except (OverflowError, ValueError):
+            return None
     try:
-        return int(float(v))
-    except Exception:
-        return default
+        d = Decimal(str(v).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if not d.is_finite() or d != d.to_integral_value():
+        return None
+    try:
+        return int(d)
+    except (OverflowError, ValueError):
+        return None
+
+
+def to_int(v: Any, default: int = 0) -> int:
+    parsed = parse_optional_int(v)
+    return default if parsed is None else parsed
 
 
 def _criterion_value(rec: dict[str, Any], mapping: ColumnMapping) -> float:

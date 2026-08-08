@@ -17,6 +17,7 @@ from mt5_equity_metrics import (
     reconstruct_deal_equity_series,
 )
 from mt5_opt_report import read_report_text, to_float
+from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 from mt5_synthetic_report import build_synthetic_report_metrics, max_drawdown_pct, parse_iso_datetime
 
@@ -241,7 +242,7 @@ def _risk_pct_from_summary(summary: dict[str, Any], parameters: dict[str, str]) 
         parsed = to_float(summary.get(key))
         if parsed is not None and parsed > 0:
             return parsed
-    parsed = to_float(parameters.get("RISK"))
+    parsed = to_float(parameters.get(RISK_INPUT_NAME))
     if parsed is not None and parsed > 0:
         return parsed
     return None

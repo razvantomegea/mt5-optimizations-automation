@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from mt5_equity_metrics import attach_equity_to_deal_events, parse_deal_events
-from mt5_opt_report import read_report_text, worksheet_rows
+from mt5_opt_report import parse_optional_int, read_report_text, worksheet_rows
 from mt5_portfolio_merge import (
     resolve_deal_equity_series,
     resolve_initial_deposit,
 )
 from mt5_trade_echo_api import TradeEchoOptimizerApi, resolve_optimization_run_id
+from mt5_stable_result_id import stable_result_id
 
 
 def _json_default(value: Any) -> Any:
@@ -224,6 +225,35 @@ class OptimizationApiReporter:
                 "equityCurve": equity_curve,
             },
         )
+
+    def apply_skip_robustness(self, *, row: dict[str, Any], gate: Any) -> None:
+        """Patch dashboard result after Skip Robustness (not validation_result upsert)."""
+        pass_id = parse_optional_int(row.get("pass_id"))
+        if pass_id is None:
+            print(
+                f"  WARNING: apply_skip_robustness skipped: invalid pass_id={row.get('pass_id')!r}",
+                file=sys.stderr,
+            )
+            return
+        result_id = stable_result_id(
+            run_id=self.run_id,
+            job_index=self._job_index,
+            pass_id=pass_id,
+        )
+        try:
+            self._api.apply_skip_robustness(
+                result_id=result_id,
+                passed=bool(gate.passed),
+                reject_reason=gate.reject_reason or None,
+                max_combo_dd_pct=gate.max_combo_dd_pct,
+                combo_count=int(gate.combo_count),
+                baseline_dd_pct=float(gate.baseline_dd_pct),
+                ceiling_dd_pct=float(gate.ceiling_dd_pct),
+            )
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            print(f"  WARNING: API apply_skip_robustness failed: {exc}", file=sys.stderr)
 
     def run_completed(self, *, status: str = "completed", error: str = "") -> None:
         self._safe(

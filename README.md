@@ -4,21 +4,24 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 
 ## What is included
 
-| Script                       | Purpose                                                         |
-| ---------------------------- | --------------------------------------------------------------- |
-| `mt5_heartbeat.py`           | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume       |
-| `mt5_stop.py`                | Stop `terminal64.exe` and batch optimizer Python processes      |
-| `mt5_clean_cache.py`         | Clear MT5 tester cache and local batch artifacts                |
-| `mt5_sync_favorites.py`      | Copy dashboard favorites from `Best/` to `Favorites/`           |
-| `mt5_batch_optimize.py`      | Batch forward optimization + per-job validation                 |
-| `mt5_opt_report.py`          | Optimization XML parsing and candidate filters                  |
-| `mt5_equity_metrics.py`      | Equity-curve metrics from backtest HTML                         |
-| `mt5_db_report.py`           | Push run status and validation rows to Postgres                 |
-| `mt5_portfolio_favorites.py` | Merge all dashboard favorites into one portfolio snapshot       |
-| `mt5_portfolio_merge.py`     | Trade-by-trade portfolio merge helpers                          |
-| `mt5_favorite_strategy.py`   | Copy a survivor's `.set` + reports from `Best/` to `Favorites/` |
-| `mt5_step_usage.py`          | Excel workbook: which grid steps survivors used                 |
-| `mt5_set_files.py`           | Generic `.set` discovery (nested or flat layouts)               |
+| Script                       | Purpose                                                             |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `mt5_heartbeat.py`           | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume           |
+| `mt5_stop.py`                | Stop `terminal64.exe` and batch optimizer Python processes          |
+| `mt5_clean_cache.py`         | Clear MT5 tester cache and local batch artifacts                    |
+| `mt5_sync_favorites.py`      | Copy dashboard favorites from `Best/` to `Favorites/`               |
+| `mt5_batch_optimize.py`      | Batch forward optimization + per-job validation                     |
+| `mt5_opt_report.py`          | Optimization XML parsing and candidate filters                      |
+| `mt5_equity_metrics.py`      | Equity-curve metrics from backtest HTML                             |
+| `mt5_db_report.py`           | Push run status and validation rows to Postgres                     |
+| `mt5_portfolio_favorites.py` | Merge all dashboard favorites into one portfolio snapshot           |
+| `mt5_portfolio_merge.py`     | Trade-by-trade portfolio merge helpers                              |
+| `mt5_favorite_strategy.py`   | Copy a survivor's `.set` + reports from `Best/` to `Favorites/`     |
+| `mt5_skip_robustness.py`     | Skip Robustness stress: skip-day×skip-month combos on real ticks |
+| `mt5_tester_runtime.py`      | Shared tester ini / report-path / terminal helpers              |
+| `mt5_ea_inputs.py`           | Env-overridable EA input names and skip grids                   |
+| `mt5_step_usage.py`          | Excel workbook: which grid steps survivors used                     |
+| `mt5_set_files.py`           | Generic `.set` discovery (nested or flat layouts)                   |
 
 ## What is **not** included (private)
 
@@ -73,9 +76,10 @@ From **this folder**, run Python directly:
 | Sync favorites                 | `python mt5_sync_favorites.py`                                                                                                   |
 | Build portfolio                | `python mt5_portfolio_favorites.py`                                                                                              |
 | Step-usage report              | `python mt5_step_usage.py`                                                                                                       |
+| Skip robustness (one Survivor) | `python mt5_skip_robustness.py --set-file … --symbol … --timeframe … --from-date … --to-date … --baseline-dd … --expert …`       |
 | Unit tests                     | `python -m pytest -q`                                                                                                            |
 
-Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`):
+Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`). If package `SetFiles/` is empty, grids fall back to `../../EAs/SetFiles` (Classic / Multi / SwingHA).
 
 ### Nested (strategy + chart timeframe)
 
@@ -120,8 +124,14 @@ Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategie
 
 | Variable                      | Required | Description                                      |
 | ----------------------------- | -------- | ------------------------------------------------ |
-| `MT5_SET_DIR`                 | No\*     | Folder with `.set` grids (default: `./SetFiles`) |
+| `MT5_SET_DIR`                 | No\*     | Folder with `.set` grids (default: `./SetFiles` if populated, else `../../EAs/SetFiles`) |
 | `MT5_EXPERT`                  | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)  |
+| `MT5_TERMINAL`                | No       | Path to `terminal64.exe` (else first existing of FTMO / MetaTrader 5 install) |
+| `MT5_RISK_INPUT`              | No       | EA risk input name (default: `RISK`)             |
+| `MT5_SKIP_DAY_INPUT`          | No       | Skip-day input name (default: `SKIP_TRADE_DAY`)  |
+| `MT5_SKIP_MONTH_INPUT`        | No       | Skip-month input name (default: `SKIP_MONTH`)    |
+| `MT5_SKIP_DAY_GRID`           | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`) |
+| `MT5_SKIP_MONTH_GRID`         | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`) |
 | `TRADEECHO_USER_ID`           | Yes      | Your TradeEcho User ID (Ultimate plan)           |
 | `TRADEECHO_API_BASE_URL`      | No       | API host (default: `https://trade-echo.com`)     |
 | `TRADEECHO_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)  |
@@ -305,7 +315,7 @@ Three sources (checked in order):
 
 1. **Inline columns** — `Back Result` and `Forward Result` in the same `.xml`. Sharpe/Recovery on each row are treated as **forward-period** metrics; `Back Result` replaces in-sample `Custom` for forward selection.
 2. **Merged files** — `report.xml` (in-sample) + `report.forward.xml` joined on `Pass`.
-3. **No forward data** — warns; rows without forward metrics are rejected.
+3. **No forward data** — validation is skipped (batch) / refused; re-run optimization. Partial back reports without `.forward.xml` are deleted before the next opt attempt.
 
 ### Optimization report columns
 
@@ -329,6 +339,18 @@ Override any column with `--col-sharpe`, `--col-recovery`, `--col-custom`, etc.
 **`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_cagr_pct`, `validation_pass`, and `reject_reason` (`low_cagr`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_nonlinear`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
 
 **`best_survivors.csv`** — subset where `keep=true` (header-only when none pass).
+
+### Skip Robustness (calendar-skip stress)
+
+After each job’s validate (unless `--no-skip-robustness`, or dashboard Start/Resume with **Run robustness after validate** unchecked → `skipRobustness: false`), the top **5** Survivors by `validation_score` are stress-tested automatically when their `.set` declares the configured skip-day/skip-month inputs (defaults `SKIP_TRADE_DAY` / `SKIP_MONTH`; override via `MT5_SKIP_*`):
+
+1. Freeze the winning `.set` (keep `SKIP_*=0` on the Survivor).
+2. Run complete optimization (`Optimization=1`, `Model=4`, `ForwardMode=0`) with only the configured skip grids (default 5×12 = 60 combos; count follows `MT5_SKIP_*_GRID`) at the Survivor’s scaled RISK and date window.
+3. **Gate:** every combo’s equity DD ≤ `realticks_equity_dd_pct` + **1.0** pp.
+4. **Pass:** `skip_robustness_pass=true` (Survivor unchanged, still no-skip).  
+   **Fail:** `reject_reason=robustness_failed`, `keep=false`, remove Best artifacts; auto-unfavorite if favorited.
+
+Dashboard: Passed/Favorites rows without stress show yellow **No stress** + **Stress test** button (manual, any pending Passed). Button hides after any robustness run. Domain terms: [CONTEXT.md](CONTEXT.md).
 
 ### Survivor output (`reports/Best/`)
 
@@ -407,7 +429,7 @@ You can use all Python scripts without the dashboard worker. Run `mt5_batch_opti
 | `validate_staging/`  | Temporary validation backtest files                     |
 | `mt5_batch_runs.csv` | Per-job status log (used by `--resume`)                 |
 
-Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_runs.csv` resets resume state.
+Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` and `report.forward.xml` when forward mode is on). Incomplete pairs (back `.xml` without `.forward.xml`) are deleted automatically before re-optimization; validation is skipped until forward data exists. Deleting `mt5_batch_runs.csv` resets resume state.
 
 ## Key CLI options
 
@@ -436,7 +458,7 @@ Use `--resume` to skip jobs whose reports already exist. Deleting `mt5_batch_run
 | `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling                                |
 | `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                              |
 | `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                |
-| `--backtest-timeout-seconds`  | `900`                                             | Per validation backtest timeout                              |
+| `--backtest-timeout-seconds`  | `1800`                                            | Per validation backtest timeout                              |
 | `--best-dir`                  | `reports/Best`                                    | Survivor output folder                                       |
 | `--delay-seconds`             | `2`                                               | Pause between jobs                                           |
 | `--timeout-minutes`           | `0` (none)                                        | Per-job optimization timeout                                 |

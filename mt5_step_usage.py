@@ -25,9 +25,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from mt5_paths import DEFAULT_BEST_DIR, resolve_set_dir
+from mt5_paths import DEFAULT_BEST_DIR, default_terminal_arg, resolve_set_dir
 
-DEFAULT_TERMINAL = Path(r"C:\Program Files\MetaTrader FTMO\terminal64.exe")
 DEFAULT_OUTPUT = Path("reports") / "step_usage.xlsx"
 METRIC_COLUMNS = [
     "validation_score",
@@ -408,7 +407,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Base optimization .set directory (or set MT5_SET_DIR)",
     )
     parser.add_argument("--out", default=str(DEFAULT_OUTPUT), help="Output .xlsx path")
-    parser.add_argument("--terminal", default=str(DEFAULT_TERMINAL), help="MT5 terminal64.exe path")
+    parser.add_argument("--terminal", default=default_terminal_arg(), help="MT5 terminal64.exe path (or MT5_TERMINAL)")
     parser.add_argument("--mt5-data", default="", help="MT5 data directory override")
     parser.add_argument("--portable", action="store_true", help="Use terminal directory as data directory")
     parser.add_argument("--low-threshold", type=int, default=1, help="Console threshold for low-use steps")

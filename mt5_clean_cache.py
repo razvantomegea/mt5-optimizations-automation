@@ -11,9 +11,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from mt5_paths import default_terminal_arg
 from mt5_workspace import PACKAGE_ROOT
 
-DEFAULT_TERMINAL = r"C:\Program Files\MetaTrader FTMO\terminal64.exe"
 ARTIFACT_PATHS = (
     "generated_configs",
     "reports",
@@ -164,7 +164,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--artifacts-only", action="store_true")
     parser.add_argument("--no-stop", action="store_true")
     parser.add_argument("--mt5-data")
-    parser.add_argument("--terminal", default=DEFAULT_TERMINAL)
+    parser.add_argument("--terminal", default=default_terminal_arg())
     parser.add_argument("--cache-dir")
     parser.add_argument("--work-dir", default=str(PACKAGE_ROOT))
     return parser.parse_args(argv)
