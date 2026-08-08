@@ -176,19 +176,19 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 
 > **Dev:** "Is M5 like D1/W1 — SwingHA-only and opt-in?"
 > **Domain expert:** "No. **M5 Chart Support** is Classic/Multi/SwingHA and in **M5 Default Selection** with M15/H1/H4. D1/W1 stay SwingHA opt-in."
-
+>
 > **Dev:** "Do favorites or portfolio need an M5 code path?"
 > **Domain expert:** "No. Under **M5 Delivery Scope**, timeframe is opaque identity. Once M5 Survivors exist, favorite + portfolio already work."
-
+>
 > **Dev:** "Where do we commit the new grids?"
 > **Domain expert:** "`EAs/SetFiles/` only, per **M5 Base-set Matrix** and **M5 Grid Provenance**. Package SetFiles stay local."
-
+>
 > **Dev:** "Is skip robustness part of normal validate?"
 > **Domain expert:** "No. Main opt/validate still builds **Survivors** with **No-Skip Winning Sets**. **Skip Robustness Optimization** is a final step: auto top-5 after each job, plus **Manual Skip Robustness Trigger** for **Skip Robustness Pending** (yellow) rows."
-
+>
 > **Dev:** "Can I favorite before stress?"
 > **Domain expert:** "Yes. Pending stays favorite-eligible. If stress later fails, **Skip Robustness Favorite Sync** unfavorites. Pass sets `skip_robustness_pass`; fail sets `passed=false` / `validation_pass=false`, records `robustness_failed`, and does not retain Passed status."
-
+>
 > **Dev:** "When is the Stress test button visible?"
 > **Domain expert:** "Only on Passed rows that never ran robustness (**Skip Robustness Pending**, yellow). After any robustness run, hide it — no re-run."
 

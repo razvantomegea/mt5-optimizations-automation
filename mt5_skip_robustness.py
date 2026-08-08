@@ -14,6 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from mt5_env import load_repo_env
+
+load_repo_env()
+
 from mt5_ea_inputs import (
     EXPECTED_SKIP_COMBINATIONS,
     RISK_INPUT_NAME,
@@ -22,10 +26,8 @@ from mt5_ea_inputs import (
     SKIP_TRADE_DAY_GRID,
     SKIP_TRADE_DAY_INPUT,
 )
-from mt5_env import load_repo_env
 from mt5_opt_report import (
     ColumnOverrides,
-    _parse_rows_from_records,
     resolve_column_mapping,
     to_float,
     worksheet_rows,
@@ -38,7 +40,7 @@ from mt5_tester_runtime import (
     build_tester_report_target,
     format_set_param_value,
     resolve_report_path,
-    stop_running_terminal,
+    start_terminal,
     write_ini,
 )
 from mt5_workspace import PACKAGE_ROOT
@@ -203,10 +205,9 @@ def load_optimization_equity_dds(xml_path: Path) -> list[float]:
             f"Equity DD column unresolved in {xml_path.name}; "
             "cannot evaluate skip robustness without drawdown measurements"
         )
-    rows = _parse_rows_from_records(records, headers, mapping)
     dds: list[float] = []
-    for row in rows:
-        value = row.equity_dd_pct
+    for rec in records:
+        value = to_float(rec.get(mapping.equity_dd))
         if value is None:
             continue
         dds.append(float(value))
@@ -315,7 +316,10 @@ def remove_best_artifacts(
     stem = set_file.stem
     target_set = best_dir / "sets" / set_file.name
     if target_set.is_file():
-        target_set.unlink()
+        try:
+            target_set.unlink()
+        except PermissionError:
+            pass
     report_dir = best_dir / "reports" / symbol
     if report_dir.is_dir():
         for path in report_dir.iterdir():
@@ -329,7 +333,10 @@ def remove_best_artifacts(
                 or name.startswith(f"{stem}_")
                 or name.startswith(f"{stem}-")
             ):
-                path.unlink()
+                try:
+                    path.unlink()
+                except PermissionError:
+                    continue
 
 
 def delete_report_artifacts(report_base: Path) -> list[Path]:
@@ -407,8 +414,7 @@ def run_skip_stress_optimization(
         cmd.append("/portable")
     cmd.append(f"/config:{ini_path}")
 
-    stop_running_terminal()
-    proc = subprocess.Popen(cmd, cwd=str(install_dir))
+    proc = start_terminal(cmd, cwd=install_dir)
     try:
         proc.wait(timeout=timeout_seconds if timeout_seconds > 0 else None)
     except subprocess.TimeoutExpired:

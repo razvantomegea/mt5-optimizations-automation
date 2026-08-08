@@ -44,8 +44,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_env import load_repo_env
+
+load_repo_env()
+
+from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_paths import DEFAULT_BEST_DIR, default_terminal_arg, resolve_set_dir
 from mt5_report_completeness import (
     back_xml_path,
@@ -62,9 +65,10 @@ from mt5_tester_runtime import (
     MT5_REPORT_PATH_MAX_LEN,
     REPORT_SUFFIXES,
     build_tester_report_target,
+    ensure_terminal_available,
     format_set_param_value,
     resolve_report_path,
-    stop_running_terminal,
+    start_terminal,
     write_ini,
 )
 from mt5_opt_report import (
@@ -663,7 +667,7 @@ def run_single_backtest(
     if portable:
         cmd.append("/portable")
     cmd.append(f"/config:{ini_path}")
-    proc = subprocess.Popen(cmd, cwd=str(install_dir))
+    proc = start_terminal(cmd, cwd=install_dir)
     try:
         proc.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
@@ -1023,7 +1027,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
     staging_dir.mkdir(parents=True, exist_ok=True)
     _prepare_best_dir(cfg.best_dir, reset=cfg.reset_best_dir)
 
-    stop_running_terminal()
+    ensure_terminal_available()
 
     tester_profiles_dir = cfg.data_dir / "MQL5" / "Profiles" / "Tester"
     tester_profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -1950,6 +1954,7 @@ def _run_batch_jobs(
 ) -> int:
     completed_count = 0
     stress_failures = 0
+    batch_failures = 0
     best_initialized = best_dir_initialized
 
     for job in jobs:
@@ -1995,6 +2000,29 @@ def _run_batch_jobs(
                 f"[{job.index}/{len(jobs)}] deleted incomplete report(s) "
                 f"(missing .forward.xml): {names}"
             )
+        if incomplete_forward_reports(job.report_path, forward_mode=args.forward_mode):
+            job.status = "incomplete_forward"
+            job.error = (
+                "Incomplete forward report remains after cleanup; "
+                "close locked files and re-run"
+            )
+            batch_failures += 1
+            with run_log_path.open("a", newline="", encoding="utf-8") as f:
+                csv.DictWriter(f, fieldnames=list(asdict(job).keys())).writerow(asdict(job))
+            completed_count += 1
+            print(f"[{job.index}/{len(jobs)}] {job.status}: {job.error}")
+            db_reporter.job_completed(
+                job_index=job.index,
+                total_jobs=len(jobs),
+                symbol=job.symbol,
+                timeframe=job.timeframe,
+                param_file=job.param_file,
+                report_stem=job.report_stem,
+                status=job.status,
+                error=job.error or "",
+            )
+            time.sleep(args.delay_seconds)
+            continue
 
         ini_cfg = {
             "Expert": args.expert,
@@ -2046,9 +2074,9 @@ def _run_batch_jobs(
             param_file=job.param_file,
             report_stem=job.report_stem,
         )
-        stop_running_terminal()
+        ensure_terminal_available()
         started = time.time()
-        proc = subprocess.Popen(cmd, cwd=str(install_dir))
+        proc = start_terminal(cmd, cwd=install_dir)
         timeout = None if args.timeout_minutes <= 0 else args.timeout_minutes * 60.0
         try:
             proc.wait(timeout=timeout)
@@ -2074,6 +2102,7 @@ def _run_batch_jobs(
                 job.error = (
                     "Back report present but .forward.xml missing; skipping validation"
                 )
+                batch_failures += 1
             elif proc.returncode == 0 and report_exists:
                 job.status = "done"
             elif report_exists:
@@ -2131,6 +2160,7 @@ def _run_batch_jobs(
                 ))
             except FileNotFoundError as exc:
                 print(f"  Skipping validation: {exc}")
+                batch_failures += 1
                 time.sleep(args.delay_seconds)
                 continue
             except Exception as exc:
@@ -2148,7 +2178,7 @@ def _run_batch_jobs(
                         if args.timeout_minutes <= 0
                         else args.timeout_minutes * 60.0
                     )
-                    stress_auto_top_survivors(
+                    stress_results = stress_auto_top_survivors(
                         rows=rows,
                         from_date=args.from_date,
                         to_date=args.to_date,
@@ -2165,6 +2195,7 @@ def _run_batch_jobs(
                         timeout_seconds=timeout,
                         db_reporter=db_reporter,
                     )
+                    stress_failures += sum(1 for gate in stress_results if not gate.passed)
                 except Exception as exc:  # noqa: BLE001
                     print(
                         f"ERROR: skip robustness failed for {job.report_stem}: {exc}",
@@ -2177,11 +2208,17 @@ def _run_batch_jobs(
 
     total_elapsed = time.time() - batch_started
     print(f"Finished {len(jobs)} jobs in {format_seconds(total_elapsed)}. Log: {run_log_path}")
-    if stress_failures:
-        print(
-            f"ERROR: skip robustness failed for {stress_failures} job(s)",
-            file=sys.stderr,
-        )
+    if stress_failures or batch_failures:
+        if batch_failures:
+            print(
+                f"ERROR: batch recorded {batch_failures} incomplete/skipped validation failure(s)",
+                file=sys.stderr,
+            )
+        if stress_failures:
+            print(
+                f"ERROR: skip robustness failed for {stress_failures} survivor(s)/job(s)",
+                file=sys.stderr,
+            )
         return 1
     return 0
 

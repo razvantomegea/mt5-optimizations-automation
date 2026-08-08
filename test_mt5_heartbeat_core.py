@@ -352,13 +352,16 @@ def _skip_payload() -> dict:
     }
 
 
-def test_read_skip_robustness_payload_rejects_non_positive_baseline() -> None:
+def test_read_skip_robustness_payload_rejects_negative_baseline() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="baselineDd"):
-        read_skip_robustness_payload({**_skip_payload(), "baselineDd": 0})
-    with pytest.raises(ValueError, match="baselineDd"):
         read_skip_robustness_payload({**_skip_payload(), "baselineDd": -1.5})
+
+
+def test_read_skip_robustness_payload_accepts_zero_baseline() -> None:
+    parsed = read_skip_robustness_payload({**_skip_payload(), "baselineDd": 0})
+    assert parsed.baseline_dd == 0.0
 
 
 def test_read_skip_robustness_payload_accepts_positive_baseline() -> None:
@@ -367,9 +370,28 @@ def test_read_skip_robustness_payload_accepts_positive_baseline() -> None:
     assert parsed.scaled_risk == 2.0
 
 
+def test_read_skip_robustness_payload_rejects_non_positive_scaled_risk() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="scaledRisk"):
+        read_skip_robustness_payload({**_skip_payload(), "scaledRisk": 0})
+    with pytest.raises(ValueError, match="scaledRisk"):
+        read_skip_robustness_payload({**_skip_payload(), "scaledRisk": -1})
+    with pytest.raises(ValueError, match="scaledRisk"):
+        read_skip_robustness_payload({**_skip_payload(), "scaledRisk": True})
+
+
 def test_process_skip_robustness_launches_without_blocking() -> None:
+    import threading
+
     worker_store = MagicMock()
-    run_skip = MagicMock()
+    started = threading.Event()
+    release = threading.Event()
+
+    def run_skip(_command: object) -> None:
+        started.set()
+        assert release.wait(timeout=2)
+
     run_portfolio = MagicMock()
     heartbeat = create_optimizer_heartbeat(
         worker_store=worker_store,
@@ -389,10 +411,39 @@ def test_process_skip_robustness_launches_without_blocking() -> None:
         }
     )
 
+    assert started.wait(timeout=2)
+    worker_store.mark_command_done.assert_not_called()
+    release.set()
+    heartbeat.await_active_run()
+    run_portfolio.assert_called_once()
     worker_store.mark_command_done.assert_called_with(
         command_id="cmd-skip",
         status="done",
     )
+
+
+def test_process_skip_robustness_marks_failed_on_error() -> None:
+    worker_store = MagicMock()
+    run_skip = MagicMock(side_effect=RuntimeError("stress boom"))
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=MagicMock(),
+        run_favorite=MagicMock(),
+        run_skip_robustness=run_skip,
+    )
+
+    heartbeat.process_command(
+        {
+            "id": "cmd-skip-fail",
+            "action": "skip_robustness",
+            "payload": _skip_payload(),
+        }
+    )
     heartbeat.await_active_run()
-    run_skip.assert_called_once()
-    run_portfolio.assert_called_once()
+    worker_store.mark_command_done.assert_called_with(
+        command_id="cmd-skip-fail",
+        status="failed",
+        error="stress boom",
+    )

@@ -68,3 +68,14 @@ def test_delete_incomplete_ignores_permission_error(
     assert {p.name for p in deleted} == {"job.htm"}
     assert xml.exists()
     assert not htm.exists()
+    # Caller must re-check before re-opt: residual incomplete artifacts remain.
+    assert incomplete_forward_reports(base, forward_mode="1") is True
+
+
+def test_delete_incomplete_clears_when_unlocked(tmp_path: Path) -> None:
+    base = str(tmp_path / "job")
+    (tmp_path / "job.xml").write_text("x", encoding="utf-8")
+    (tmp_path / "job.htm").write_text("y", encoding="utf-8")
+    deleted = delete_incomplete_forward_reports(base, forward_mode="1")
+    assert {p.name for p in deleted} == {"job.xml", "job.htm"}
+    assert incomplete_forward_reports(base, forward_mode="1") is False

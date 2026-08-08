@@ -6,11 +6,16 @@ from typing import Any
 
 from mt5_opt_report import to_float, to_int
 
+# Missing scores sort last under reverse=True ranking.
+_MISSING_RANK = float("-inf")
 
-def validation_rank_key(row: dict[str, Any]) -> tuple[float | None, float | None, int]:
+
+def validation_rank_key(row: dict[str, Any]) -> tuple[float, float, int]:
+    score = to_float(row.get("validation_score"))
+    recovery = to_float(row.get("validation_recovery"))
     return (
-        to_float(row.get("validation_score")),
-        to_float(row.get("validation_recovery")),
+        _MISSING_RANK if score is None else score,
+        _MISSING_RANK if recovery is None else recovery,
         to_int(row.get("pass_id")),
     )
 

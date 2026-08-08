@@ -222,18 +222,20 @@ def read_skip_robustness_payload(payload: dict[str, Any]) -> SkipRobustnessComma
         raise ValueError("skip_robustness requires baselineDd") from exc
     if not math.isfinite(baseline_dd):
         raise ValueError("skip_robustness requires baselineDd")
-    if baseline_dd <= 0:
+    if baseline_dd < 0:
         raise ValueError("skip_robustness requires baselineDd")
     scaled_raw = payload.get("scaledRisk")
     scaled_risk: float | None
     if scaled_raw is None:
         scaled_risk = None
     else:
+        if isinstance(scaled_raw, bool):
+            raise ValueError("skip_robustness scaledRisk must be a finite number")
         try:
             scaled_risk = float(scaled_raw)
         except (TypeError, ValueError) as exc:
             raise ValueError("skip_robustness scaledRisk must be a finite number") from exc
-        if not math.isfinite(scaled_risk):
+        if not math.isfinite(scaled_risk) or scaled_risk <= 0:
             raise ValueError("skip_robustness scaledRisk must be a finite number")
     result_id = str(payload.get("resultId") or "").strip()
     return SkipRobustnessCommand(
@@ -281,15 +283,16 @@ class OptimizerHeartbeat:
     def touch_heartbeat(self) -> None:
         self._worker_store.touch_heartbeat(busy=self._child_busy)
 
-    def await_active_run(self) -> None:
+    def await_active_run(self, timeout: float | None = None) -> None:
         active_run = self._active_run
         if active_run is None:
             return
-        active_run.join()
+        active_run.join(timeout=timeout)
 
     def shutdown(self) -> None:
         self._run_stop()
-        self.await_active_run()
+        # Bound join so skip-robustness / long MT5 waits cannot block shutdown for hours.
+        self.await_active_run(timeout=30.0)
 
     def poll_commands(self) -> None:
         command = self._worker_store.claim_pending_command(
@@ -358,10 +361,13 @@ class OptimizerHeartbeat:
         if self._child_busy:
             raise RuntimeError("Cannot run skip_robustness while optimizer child is busy")
         parsed = read_skip_robustness_payload(payload)
-        self._launch_skip_robustness(parsed)
-        self._worker_store.mark_command_done(command_id=command_id, status="done")
+        self._launch_skip_robustness(command_id, parsed)
 
-    def _launch_skip_robustness(self, parsed: SkipRobustnessCommand) -> None:
+    def _launch_skip_robustness(
+        self,
+        command_id: str,
+        parsed: SkipRobustnessCommand,
+    ) -> None:
         import threading
 
         def runner() -> None:
@@ -371,8 +377,18 @@ class OptimizerHeartbeat:
                     self._run_portfolio_build()
                 except Exception as error:  # noqa: BLE001
                     self._log(f"Portfolio refresh failed: {error}")
+                self._worker_store.mark_command_done(
+                    command_id=command_id,
+                    status="done",
+                )
             except Exception as error:  # noqa: BLE001
-                self._log(f"Skip robustness exited abnormally: {error}")
+                message = str(error)
+                self._log(f"Skip robustness exited abnormally: {message}")
+                self._worker_store.mark_command_done(
+                    command_id=command_id,
+                    status="failed",
+                    error=message,
+                )
             finally:
                 self.set_child_busy(False)
                 self._active_run = None

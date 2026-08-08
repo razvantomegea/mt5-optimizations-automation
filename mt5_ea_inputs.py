@@ -3,6 +3,9 @@
 Override via env for other EAs without forking the pipeline:
   MT5_RISK_INPUT, MT5_SKIP_DAY_INPUT, MT5_SKIP_MONTH_INPUT,
   MT5_SKIP_DAY_GRID, MT5_SKIP_MONTH_GRID
+
+Call ``mt5_env.load_repo_env()`` before importing this module so ``.env``
+overrides apply to these module-level defaults.
 """
 
 from __future__ import annotations
@@ -36,7 +39,8 @@ def optimization_grid_step_count(grid: str) -> int:
         return 1
     if step == 0:
         return 1
-    return int(round((stop - start) / step)) + 1
+    # Floor division: exclude partial final intervals (0..3 step 2 → 2 values).
+    return int((stop - start) // step) + 1
 
 
 def expected_skip_combinations(

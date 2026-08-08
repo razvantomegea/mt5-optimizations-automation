@@ -69,6 +69,9 @@ class HeartbeatHost:
             raise RuntimeError(f"mt5_batch_optimize.py exited with code {return_code}")
 
     def run_stop(self) -> None:
+        from mt5_tester_runtime import stop_managed_terminal
+
+        stop_managed_terminal()
         result = subprocess.run(
             [sys.executable, str(STOP_SCRIPT)],
             cwd=str(PACKAGE_ROOT),

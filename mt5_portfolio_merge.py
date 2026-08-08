@@ -17,6 +17,10 @@ from mt5_equity_metrics import (
     reconstruct_deal_equity_series,
 )
 from mt5_opt_report import read_report_text, to_float
+from mt5_env import load_repo_env
+
+load_repo_env()
+
 from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 from mt5_synthetic_report import build_synthetic_report_metrics, max_drawdown_pct, parse_iso_datetime
