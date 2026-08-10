@@ -68,9 +68,9 @@ From **this folder**, run Python directly:
 | Workflow                       | Command                                                                                                                          |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | Dashboard worker               | `python mt5_heartbeat.py`                                                                                                        |
-| Dashboard worker (bat)         | `start_mt5_heartbeat.bat`                                                                                                        |
-| Install heartbeat on startup   | `install_heartbeat_startup.bat`                                                                                                  |
-| Uninstall heartbeat startup    | `uninstall_heartbeat_startup.bat`                                                                                                |
+| Dashboard worker (bat)         | `.\start_mt5_heartbeat.bat`                                                                                                      |
+| Install heartbeat on startup   | `.\install_heartbeat_startup.bat`                                                                                                |
+| Uninstall heartbeat startup    | `.\uninstall_heartbeat_startup.bat`                                                                                              |
 | Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2014.07.02 --to-date 2026.07.02`                     |
 | Batch optimize only            | add `--no-validate` to the optimize command                                                                                      |
 | Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                                                   |
@@ -400,7 +400,7 @@ Or double-click `start_mt5_heartbeat.bat` (same folder; uses `python` on PATH).
 
 You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
-**Optional — start at Windows login:** run `install_heartbeat_startup.bat` once. It creates a Startup shortcut that opens a visible console and runs the worker after you sign in. Remove it with `uninstall_heartbeat_startup.bat`.
+**Optional — start at Windows login:** run `.\install_heartbeat_startup.bat` once. It creates a Startup shortcut that opens a visible console and runs the worker after you sign in. Remove it with `.\uninstall_heartbeat_startup.bat`.
 
 **`TRADEECHO_USER_ID is not set`?** Confirm the variable is set to your UUID (not blank) in `.env` or `.env.local` in this folder, then retry.
 

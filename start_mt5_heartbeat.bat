@@ -6,7 +6,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Starting mt5_heartbeat.py from %CD%
+echo Starting mt5_heartbeat.py from "%CD%"
 python mt5_heartbeat.py
 if errorlevel 1 (
   echo Heartbeat exited with error %ERRORLEVEL%

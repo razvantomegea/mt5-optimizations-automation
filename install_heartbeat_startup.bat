@@ -18,7 +18,7 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Installed Startup shortcut:
-echo   %LNK%
+echo   "%LNK%"
 echo Target:
-echo   %TARGET%
+echo   "%TARGET%"
 endlocal
