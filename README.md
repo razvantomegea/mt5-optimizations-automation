@@ -7,6 +7,9 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 | Script                       | Purpose                                                             |
 | ---------------------------- | ------------------------------------------------------------------- |
 | `mt5_heartbeat.py`           | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume           |
+| `start_mt5_heartbeat.bat`    | Launch `mt5_heartbeat.py` from this folder (visible console)        |
+| `install_heartbeat_startup.bat` | Install Windows Startup shortcut for the heartbeat worker        |
+| `uninstall_heartbeat_startup.bat` | Remove the Windows Startup heartbeat shortcut                 |
 | `mt5_stop.py`                | Stop `terminal64.exe` and batch optimizer Python processes          |
 | `mt5_clean_cache.py`         | Clear MT5 tester cache and local batch artifacts                    |
 | `mt5_sync_favorites.py`      | Copy dashboard favorites from `Best/` to `Favorites/`               |
@@ -65,6 +68,9 @@ From **this folder**, run Python directly:
 | Workflow                       | Command                                                                                                                          |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | Dashboard worker               | `python mt5_heartbeat.py`                                                                                                        |
+| Dashboard worker (bat)         | `start_mt5_heartbeat.bat`                                                                                                        |
+| Install heartbeat on startup   | `install_heartbeat_startup.bat`                                                                                                  |
+| Uninstall heartbeat startup    | `uninstall_heartbeat_startup.bat`                                                                                                |
 | Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2014.07.02 --to-date 2026.07.02`                     |
 | Batch optimize only            | add `--no-validate` to the optimize command                                                                                      |
 | Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                                                   |
@@ -390,7 +396,11 @@ Open the terminal in **this folder** (where `.env` lives), then start the worker
 python mt5_heartbeat.py
 ```
 
+Or double-click `start_mt5_heartbeat.bat` (same folder; uses `python` on PATH).
+
 You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
+
+**Optional — start at Windows login:** run `install_heartbeat_startup.bat` once. It creates a Startup shortcut that opens a visible console and runs the worker after you sign in. Remove it with `uninstall_heartbeat_startup.bat`.
 
 **`TRADEECHO_USER_ID is not set`?** Confirm the variable is set to your UUID (not blank) in `.env` or `.env.local` in this folder, then retry.
 

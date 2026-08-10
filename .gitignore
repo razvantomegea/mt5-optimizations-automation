@@ -2,6 +2,9 @@ __pycache__/
 *.py[cod]
 .env.local
 
+# Local operator-only (not part of package surface)
+restart_pc.bat
+
 # EA-specific optimization grids — keep locally, never commit
 SetFiles/**
 !SetFiles/.gitkeep
