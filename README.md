@@ -308,7 +308,7 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                               |
 | Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                    |
 | Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                   |
-| Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%** |
+| Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**; reject as `risk_scaling_nonlinear` if scaled OHLC or real-ticks DD **&gt; 17%** |
 | Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
 | Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                   |
 | Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **25**)                                   |
@@ -467,7 +467,7 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--min-validation-calmar`     | `1`                                               | Real-ticks Calmar gate (≥)                                                   |
 | `--deposit` / `--currency`    | `100000` / `USD`                                  | Tester account balance and currency (dashboard Start/Resume forwards these)  |
 | `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD % (dashboard **Max equity drawdown %**) |
-| `--min-scaled-risk`           | `1.0`                                             | Reject when scaled RISK is below this                                        |
+| `--min-scaled-risk`           | `0.1`                                             | Clamp floor for scaled RISK (does not reject; avoids RISK 0)                 |
 | `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling; dashboard derives `round(target × 1.12)`      |
 | `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                                              |
 | `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                                |

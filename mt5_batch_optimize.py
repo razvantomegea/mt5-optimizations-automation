@@ -154,7 +154,7 @@ def default_param_file_paths(set_dir: Path) -> list[str]:
 DEFAULT_MIN_VALIDATION_CALMAR = 1.0
 DEFAULT_TARGET_EQUITY_DD = 15.0
 DEFAULT_MAX_EQUITY_DD = 17.0
-DEFAULT_MIN_SCALED_RISK = 1.0
+DEFAULT_MIN_SCALED_RISK = 0.1
 DEFAULT_OPTIMIZATION_MODE = "2"
 DEFAULT_OPTIMIZATION_MODEL = "1"
 COMPLETE_OPTIMIZATION_MODE = "1"
@@ -402,6 +402,25 @@ def compute_scaled_risk(
     if baseline_dd_pct <= 0:
         return None
     return round(baseline_risk * (target_dd_pct / baseline_dd_pct), risk_round_decimals)
+
+
+def finalize_scaled_risk(
+    scaled_risk: float | None,
+    *,
+    min_scaled_risk: float,
+) -> float | None:
+    """Clamp scaled RISK to the technical floor; never reject for being below 1.
+
+    RISK == 0 disables risk-based lot sizing in the EA, so values that round to
+    0 (or otherwise fall below the floor) are raised to ``min_scaled_risk``.
+    Returns None only when ``scaled_risk`` is missing or non-positive before
+    clamping cannot produce a usable value.
+    """
+    if scaled_risk is None or scaled_risk < 0:
+        return None
+    if scaled_risk < min_scaled_risk:
+        return min_scaled_risk
+    return scaled_risk
 
 
 def equity_dd_within_ceiling(actual_dd_pct: float, max_dd_pct: float) -> bool:
@@ -770,11 +789,15 @@ def resolve_validation_risk(
             baseline_equity_dd_pct=baseline_dd,
         )
 
-    scaled_risk = compute_scaled_risk(
+    computed_risk = compute_scaled_risk(
         baseline_risk=baseline_risk,
         baseline_dd_pct=baseline_dd,
         target_dd_pct=risk_scaling.target_equity_dd_pct,
         risk_round_decimals=risk_scaling.risk_round_decimals,
+    )
+    scaled_risk = finalize_scaled_risk(
+        computed_risk,
+        min_scaled_risk=risk_scaling.min_scaled_risk,
     )
     if scaled_risk is None:
         return RiskScalingResult(
@@ -783,18 +806,14 @@ def resolve_validation_risk(
             baseline_risk=baseline_risk,
             baseline_equity_dd_pct=baseline_dd,
         )
-    if scaled_risk < risk_scaling.min_scaled_risk:
-        if verbose:
-            print(
-                f"    reject: scaled RISK {scaled_risk} < "
-                f"{risk_scaling.min_scaled_risk} (min allowed)"
-            )
-        return RiskScalingResult(
-            passed=False,
-            reject_reason="risk_scaling_below_min_risk",
-            baseline_risk=baseline_risk,
-            baseline_equity_dd_pct=baseline_dd,
-            scaled_risk=scaled_risk,
+    if (
+        verbose
+        and computed_risk is not None
+        and computed_risk < risk_scaling.min_scaled_risk
+    ):
+        print(
+            f"    clamp: scaled RISK {computed_risk} < "
+            f"{risk_scaling.min_scaled_risk}; using {scaled_risk}"
         )
     set_input_value(set_values, RISK_INPUT_NAME, scaled_risk)
     write_set_file(generated_set, set_values)
@@ -1095,8 +1114,8 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             print(
                 f"  Risk scaling: linear scale RISK toward "
                 f"{cfg.risk_scaling.target_equity_dd_pct}% equity DD "
-                f"(reject if scaled RISK < {cfg.risk_scaling.min_scaled_risk}, "
-                f"or OHLC or real ticks > "
+                f"(clamp RISK to ≥ {cfg.risk_scaling.min_scaled_risk}; "
+                f"reject if OHLC or real ticks > "
                 f"{cfg.risk_scaling.max_scaled_equity_dd_pct}% — non-linear)"
             )
         else:
@@ -1707,7 +1726,10 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--min-scaled-risk",
         type=float,
         default=DEFAULT_MIN_SCALED_RISK,
-        help="Reject when linear scaling yields scaled RISK below this (default: 1.0)",
+        help=(
+            "Clamp scaled RISK to this floor when linear scaling yields a lower "
+            f"value (default: {DEFAULT_MIN_SCALED_RISK}; does not reject)"
+        ),
     )
     p.add_argument("--col-pass", default="", help="Override Pass column name")
     p.add_argument("--col-custom", default="", help="Override Custom column name")
