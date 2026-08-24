@@ -12,6 +12,7 @@ from mt5_heartbeat_core import (
     read_favorite_payload,
     read_skip_robustness_payload,
     read_start_payload,
+    scaled_max_equity_drawdown_percent,
 )
 
 def _start_payload() -> dict:
@@ -101,6 +102,37 @@ def test_build_optimize_argv_resume_and_no_skip_robustness() -> None:
     assert "--no-skip-robustness" in argv
 
 
+def test_scaled_max_equity_drawdown_percent() -> None:
+    assert scaled_max_equity_drawdown_percent(15.0) == 17.0
+    assert scaled_max_equity_drawdown_percent(10.0) == 11.0
+    assert scaled_max_equity_drawdown_percent(20.0) == 22.0
+    assert scaled_max_equity_drawdown_percent(2.5 / 1.12) == 3.0
+
+
+def test_build_optimize_argv_includes_account_settings() -> None:
+    config = OptimizeConfig(
+        from_date="2016.07.02",
+        to_date="2026.07.02",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        strategies=["Classic"],
+        optimization_mode="2",
+        resume=False,
+        deposit="25000",
+        currency="EUR",
+        max_equity_drawdown_percent=10.0,
+    )
+    argv = build_optimize_argv(
+        config,
+        script_path="mt5_batch_optimize.py",
+        expert="MyEA.ex5",
+    )
+    assert argv[argv.index("--deposit") + 1] == "25000"
+    assert argv[argv.index("--currency") + 1] == "EUR"
+    assert argv[argv.index("--target-equity-dd") + 1] == "10.0"
+    assert argv[argv.index("--max-equity-dd") + 1] == "11.0"
+
+
 def test_read_start_payload_normalizes_strategies() -> None:
     config = read_start_payload(
         action="start",
@@ -129,6 +161,54 @@ def test_read_start_payload_rejects_non_bool_skip_robustness() -> None:
             action="start",
             payload={**_start_payload(), "skipRobustness": "false"},
         )
+
+
+def test_read_start_payload_defaults_account_settings() -> None:
+    config = read_start_payload(action="start", payload=_start_payload())
+    assert config.deposit == "100000"
+    assert config.currency == "USD"
+    assert config.max_equity_drawdown_percent == 15.0
+
+
+def test_read_start_payload_account_settings() -> None:
+    config = read_start_payload(
+        action="start",
+        payload={
+            **_start_payload(),
+            "deposit": 25000,
+            "currency": "eur",
+            "maxEquityDrawdownPercent": 10,
+        },
+    )
+    assert config.deposit == "25000"
+    assert config.currency == "EUR"
+    assert config.max_equity_drawdown_percent == 10.0
+
+
+def test_read_start_payload_rejects_invalid_account_settings() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="currency"):
+        read_start_payload(
+            action="start",
+            payload={**_start_payload(), "currency": "XYZ"},
+        )
+    with pytest.raises(ValueError, match="deposit"):
+        read_start_payload(
+            action="start",
+            payload={**_start_payload(), "deposit": 0},
+        )
+    with pytest.raises(ValueError, match="deposit"):
+        read_start_payload(
+            action="start",
+            payload={**_start_payload(), "deposit": ""},
+        )
+    with pytest.raises(ValueError, match="maxEquityDrawdownPercent"):
+        read_start_payload(
+            action="start",
+            payload={**_start_payload(), "maxEquityDrawdownPercent": -1},
+        )
+
 
 def test_process_start_command_launches_optimize_without_blocking() -> None:
     worker_store = MagicMock()
@@ -367,6 +447,16 @@ def test_read_skip_robustness_payload_accepts_zero_baseline() -> None:
 def test_read_skip_robustness_payload_accepts_positive_baseline() -> None:
     parsed = read_skip_robustness_payload(_skip_payload())
     assert parsed.baseline_dd == 11.4
+    assert parsed.deposit is None
+    assert parsed.currency is None
+
+
+def test_read_skip_robustness_payload_inherits_account_settings() -> None:
+    parsed = read_skip_robustness_payload(
+        {**_skip_payload(), "deposit": "25000", "currency": "eur"}
+    )
+    assert parsed.deposit == "25000"
+    assert parsed.currency == "EUR"
     assert parsed.scaled_risk == 2.0
 
 

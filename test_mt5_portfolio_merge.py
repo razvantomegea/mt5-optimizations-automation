@@ -496,6 +496,7 @@ def test_merge_orders_trades_chronologically() -> None:
 
 
 def test_merge_scales_later_trade_to_current_portfolio_equity() -> None:
+    """Non-overlapping exit-only trades compound on shared capital at each close."""
     merged = merge_strategy_series(
         [
             _series(
@@ -892,7 +893,7 @@ def test_merge_with_equity_sidecar_tracks_equity_drawdown_separately() -> None:
                         equity_before=100_000,
                         direction="in",
                         is_closed_trade=False,
-                        equity_after=99_000,
+                        equity_after=80_000,
                     ),
                     deal(
                         time=exit_time,
@@ -900,10 +901,10 @@ def test_merge_with_equity_sidecar_tracks_equity_drawdown_separately() -> None:
                         equity_before=99_990,
                         direction="out",
                         is_closed_trade=True,
-                        equity_after=89_000,
+                        equity_after=89_990,
                     ),
                 ),
-                equity_at_deals=((entry_time, 99_000), (exit_time, 89_000)),
+                equity_at_deals=((entry_time, 80_000), (exit_time, 89_990)),
             )
         ],
         initial_deposit=100_000,
@@ -913,7 +914,85 @@ def test_merge_with_equity_sidecar_tracks_equity_drawdown_separately() -> None:
     assert merged.summary["max_equity_drawdown_relative_pct"] > merged.summary[
         "max_balance_drawdown_relative_pct"
     ]
-    assert merged.equity_curve[-1]["equity"] < merged.equity_curve[-1]["balance"]
+    open_points = [
+        point
+        for point in merged.equity_curve
+        if point["time"] == entry_time.isoformat()
+    ]
+    assert open_points[-1]["equity"] < open_points[-1]["balance"]
+    assert merged.equity_curve[-1]["equity"] == pytest.approx(
+        merged.equity_curve[-1]["balance"]
+    )
+
+
+def test_merge_inout_after_size_change_uses_replacement_scale_for_equity() -> None:
+    t0 = datetime(2020, 1, 1)
+    t1 = datetime(2020, 1, 2)
+    t2 = datetime(2020, 1, 3)
+    merged = merge_strategy_series(
+        [
+            series(
+                result_id="strategy-a",
+                trades=(
+                    trade(
+                        time=t1,
+                        profit=50_000,
+                        equity_before=100_000,
+                        result_id="strategy-a",
+                    ),
+                ),
+                deals=(
+                    deal(
+                        time=t0,
+                        balance_delta=0,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="strategy-a",
+                        equity_after=100_000,
+                    ),
+                    deal(
+                        time=t1,
+                        balance_delta=50_000,
+                        equity_before=100_000,
+                        direction="out",
+                        is_closed_trade=True,
+                        result_id="strategy-a",
+                        equity_after=150_000,
+                    ),
+                ),
+            ),
+            series(
+                result_id="strategy-b",
+                trades=(),
+                deals=(
+                    deal(
+                        time=t0,
+                        balance_delta=0,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="strategy-b",
+                        equity_after=100_000,
+                    ),
+                    deal(
+                        time=t2,
+                        balance_delta=0,
+                        equity_before=100_000,
+                        direction="in/out",
+                        is_closed_trade=True,
+                        result_id="strategy-b",
+                        equity_after=80_000,
+                    ),
+                ),
+            ),
+        ],
+        initial_deposit=100_000,
+    )
+
+    last = merged.equity_curve[-1]
+    assert last["balance"] == pytest.approx(150_000)
+    assert last["equity"] == pytest.approx(120_000)
 
 
 def test_merge_summary_aggregates_strategy_trade_counts_and_equity_dd() -> None:
@@ -1030,3 +1109,149 @@ def test_parse_deal_events_counts_exit_rows_only(tmp_path: Path) -> None:
 
     assert len(events) == 3
     assert sum(1 for event in events if event.is_closed_trade) == 2
+
+
+def test_parse_deal_events_keeps_zero_delta_entry_marks(tmp_path: Path) -> None:
+    report_path = tmp_path / "sample.htm"
+    report_path.write_text(
+        sample_deals_report_html(
+            deal_row(time="2020.01.01 00:00:00", direction="in", balance="100000"),
+            deal_row(time="2020.01.02 00:00:00", direction="out", balance="100500"),
+        ),
+        encoding="utf-8",
+    )
+
+    events = parse_deal_events(report_path, initial_deposit=100_000.0)
+
+    assert len(events) == 2
+    assert events[0].direction == "in"
+    assert events[0].balance_delta == pytest.approx(0.0)
+    assert events[0].is_closed_trade is False
+    assert events[1].is_closed_trade is True
+
+
+def test_copy_deal_equity_sidecar_beside_report_from_common_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mt5_deal_equity_sidecar import (
+        DEAL_EQUITY_EXPORT_BASENAME,
+        copy_deal_equity_sidecar_beside_report,
+        resolve_common_deal_equity_export,
+    )
+
+    mq = tmp_path / "MetaQuotes" / "Terminal" / "Common" / "Files"
+    mq.mkdir(parents=True)
+    (mq / DEAL_EQUITY_EXPORT_BASENAME).write_text(
+        '[{"time":"2020.01.01 00:00:00","equity":101.0}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    report_path = tmp_path / "reports" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text("<html></html>", encoding="utf-8")
+
+    dest = copy_deal_equity_sidecar_beside_report(
+        report_path,
+        source=resolve_common_deal_equity_export(),
+    )
+
+    assert dest is not None
+    assert dest.is_file()
+    assert dest == resolve_deal_equity_sidecar_path(report_path)
+    assert "101.0" in dest.read_text(encoding="utf-8")
+
+
+def test_copy_deal_equity_sidecar_does_not_use_stale_common_files_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mt5_deal_equity_sidecar import (
+        DEAL_EQUITY_EXPORT_BASENAME,
+        copy_deal_equity_sidecar_beside_report,
+        copy_deal_equity_sidecar_between_reports,
+    )
+
+    mq = tmp_path / "MetaQuotes" / "Terminal" / "Common" / "Files"
+    mq.mkdir(parents=True)
+    (mq / DEAL_EQUITY_EXPORT_BASENAME).write_text(
+        '[{"time":"2020.01.01 00:00:00","equity":101.0}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    report_path = tmp_path / "reports" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text("<html></html>", encoding="utf-8")
+
+    assert copy_deal_equity_sidecar_beside_report(report_path) is None
+    assert not resolve_deal_equity_sidecar_path(report_path).is_file()
+
+    dest_report = tmp_path / "dest" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    dest_report.parent.mkdir(parents=True)
+    dest_report.write_text("<html></html>", encoding="utf-8")
+    assert copy_deal_equity_sidecar_between_reports(
+        source_report=report_path,
+        dest_report=dest_report,
+    ) is None
+
+
+def test_copy_deal_equity_sidecar_overwrites_stale_beside_from_common_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mt5_deal_equity_sidecar import (
+        DEAL_EQUITY_EXPORT_BASENAME,
+        copy_deal_equity_sidecar_beside_report,
+        resolve_common_deal_equity_export,
+    )
+
+    mq = tmp_path / "MetaQuotes" / "Terminal" / "Common" / "Files"
+    mq.mkdir(parents=True)
+    (mq / DEAL_EQUITY_EXPORT_BASENAME).write_text(
+        '[{"time":"2020.01.02 00:00:00","equity":202.0}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    report_path = tmp_path / "reports" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text("<html></html>", encoding="utf-8")
+    stale = resolve_deal_equity_sidecar_path(report_path)
+    stale.write_text(
+        '[{"time":"2019.01.01 00:00:00","equity":1.0}]',
+        encoding="utf-8",
+    )
+
+    dest = copy_deal_equity_sidecar_beside_report(
+        report_path,
+        source=resolve_common_deal_equity_export(),
+    )
+
+    assert dest is not None
+    text = dest.read_text(encoding="utf-8")
+    assert '"equity":202.0' in text
+    assert "2019.01.01" not in text
+
+
+def test_copy_deal_equity_sidecar_between_reports(tmp_path: Path) -> None:
+    from mt5_deal_equity_sidecar import copy_deal_equity_sidecar_between_reports
+
+    src_report = tmp_path / "src" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    dest_report = tmp_path / "dest" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    src_report.parent.mkdir(parents=True)
+    dest_report.parent.mkdir(parents=True)
+    src_report.write_text("<html></html>", encoding="utf-8")
+    dest_report.write_text("<html></html>", encoding="utf-8")
+    src_sidecar = resolve_deal_equity_sidecar_path(src_report)
+    src_sidecar.write_text('[{"time":"2020.01.01 00:00:00","equity":99.0}]', encoding="utf-8")
+
+    copied = copy_deal_equity_sidecar_between_reports(
+        source_report=src_report,
+        dest_report=dest_report,
+    )
+
+    assert copied is not None
+    assert copied == resolve_deal_equity_sidecar_path(dest_report)
+    assert "99.0" in copied.read_text(encoding="utf-8")

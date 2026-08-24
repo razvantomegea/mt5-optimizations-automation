@@ -99,6 +99,12 @@ from mt5_equity_metrics import (
     extract_margin_level_pct,
     validation_score as compute_validation_score,
 )
+from mt5_deal_equity_sidecar import (
+    clear_common_deal_equity_export,
+    copy_deal_equity_sidecar_beside_report,
+    copy_deal_equity_sidecar_between_reports,
+    resolve_common_deal_equity_export,
+)
 from mt5_set_files import (
     choose_base_set,
     discover_chart_tfs,
@@ -145,7 +151,7 @@ def sets_for_chart_tf(chart_tf: str, available_names: list[str]) -> list[str]:
 def default_param_file_paths(set_dir: Path) -> list[str]:
     return [str(path) for path in sorted(discover_set_files(set_dir).values())]
 
-DEFAULT_MIN_VALIDATION_CAGR = 10.0
+DEFAULT_MIN_VALIDATION_CALMAR = 1.0
 DEFAULT_TARGET_EQUITY_DD = 15.0
 DEFAULT_MAX_EQUITY_DD = 17.0
 DEFAULT_MIN_SCALED_RISK = 1.0
@@ -221,7 +227,7 @@ class RiskScalingResult:
 @dataclass
 class ValidationThresholds:
     min_sharpe: float = DEFAULT_MIN_SHARPE
-    min_cagr_pct: float = DEFAULT_MIN_VALIDATION_CAGR
+    min_calmar: float = DEFAULT_MIN_VALIDATION_CALMAR
     max_equity_dd: float = DEFAULT_MAX_EQUITY_DD
 
 
@@ -905,6 +911,8 @@ def candidate_summary_row(
     scaled_risk: Any = "",
     scaled_ohlc_equity_dd_pct: Any = "",
     risk_scaling_pass: bool = False,
+    deposit: Any = "",
+    currency: Any = "",
     reject_reason: str = "",
     error: str = "",
 ) -> dict[str, Any]:
@@ -940,6 +948,8 @@ def candidate_summary_row(
         "scaled_risk": scaled_risk,
         "scaled_ohlc_equity_dd_pct": scaled_ohlc_equity_dd_pct,
         "risk_scaling_pass": risk_scaling_pass,
+        "deposit": deposit,
+        "currency": currency,
         "reject_reason": reject_reason,
         "keep": keep,
         "set_file": set_file,
@@ -1015,7 +1025,7 @@ def _validation_passes(
         return False
     if val_sharpe < thresholds.min_sharpe:
         return False
-    return val_equity.cagr_pct >= thresholds.min_cagr_pct
+    return val_equity.calmar >= thresholds.min_calmar
 
 
 def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
@@ -1077,7 +1087,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         vt = cfg.validation_thresholds
         print(
             f"  Validation gates: sharpe>={vt.min_sharpe} "
-            f"cagr>={vt.min_cagr_pct}% "
+            f"calmar>={vt.min_calmar} "
             f"equity_dd<={vt.max_equity_dd}% "
             f"(OHLC + real ticks at scaled RISK)"
         )
@@ -1180,6 +1190,8 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                         scaled_risk=_format_optional_float(scaled_risk_value),
                         scaled_ohlc_equity_dd_pct=_format_optional_float(scaled_ohlc_equity_dd),
                         risk_scaling_pass=False,
+                        deposit=cfg.deposit,
+                        currency=cfg.currency,
                         reject_reason=scaling.reject_reason,
                         error=scaling.error,
                     )
@@ -1200,7 +1212,13 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                 baseline_equity_dd = ohlc_dd
                 scaled_ohlc_equity_dd = ohlc_dd
 
+            clear_common_deal_equity_export()
             real_report = run_single_backtest(**backtest_kwargs, model=4)
+            common_export = resolve_common_deal_equity_export()
+            copy_deal_equity_sidecar_beside_report(
+                real_report,
+                source=common_export,
+            )
         except (RuntimeError, FileNotFoundError, ValueError) as exc:
             print(f"    FAILED: {exc}", file=sys.stderr)
             if cfg.verbose:
@@ -1208,6 +1226,8 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             row = candidate_summary_row(
                 cand,
                 set_file=str(generated_set),
+                deposit=cfg.deposit,
+                currency=cfg.currency,
                 reject_reason="backtest_error",
                 error=str(exc),
             )
@@ -1269,13 +1289,13 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                     f"    dropping pass={cand.pass_id}: validation sharpe "
                     f"{val_sharpe:.4f} < {cfg.validation_thresholds.min_sharpe}"
                 )
-        if val_equity is not None and val_equity.cagr_pct < cfg.validation_thresholds.min_cagr_pct:
-            reject_reasons.append("low_cagr")
+        if val_equity is not None and val_equity.calmar < cfg.validation_thresholds.min_calmar:
+            reject_reasons.append("low_calmar")
             if cfg.verbose:
                 print(
-                    f"    dropping pass={cand.pass_id}: CAGR "
-                    f"{val_equity.cagr_pct:.2f}% < "
-                    f"{cfg.validation_thresholds.min_cagr_pct}%"
+                    f"    dropping pass={cand.pass_id}: Calmar "
+                    f"{val_equity.calmar:.2f} < "
+                    f"{cfg.validation_thresholds.min_calmar}"
                 )
 
         validation_pass = _validation_passes(
@@ -1299,6 +1319,8 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             scaled_risk=_format_optional_float(scaled_risk_value),
             scaled_ohlc_equity_dd_pct=_format_optional_float(scaled_ohlc_equity_dd),
             risk_scaling_pass=risk_scaling_pass,
+            deposit=cfg.deposit,
+            currency=cfg.currency,
             margin_level_pct=_format_optional_float(margin_level),
             validation_recovery=_format_optional_float(val_recovery),
             validation_sharpe=_format_optional_float(val_sharpe),
@@ -1355,7 +1377,12 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             target_report_dir = cfg.best_dir / "reports" / cand.symbol
             target_report_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ohlc_report, target_report_dir / f"{cand_stem}_ohlc{ohlc_report.suffix}")
-            shutil.copy2(real_report, target_report_dir / f"{cand_stem}_realticks{real_report.suffix}")
+            dest_realticks = target_report_dir / f"{cand_stem}_realticks{real_report.suffix}"
+            shutil.copy2(real_report, dest_realticks)
+            copy_deal_equity_sidecar_between_reports(
+                source_report=real_report,
+                dest_report=dest_realticks,
+            )
             shutil.copy2(Path(cand.source_xml), target_report_dir / Path(cand.source_xml).name)
             _, fwd_path = resolve_back_and_forward_paths(Path(cand.source_xml))
             if fwd_path and fwd_path.is_file():
@@ -1366,7 +1393,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         print(
             f"  Final ranking: {kept}/{len(new_rows)} kept "
             f"(top {cfg.keep_top_k} by validation score; "
-            f"risk scaling + sharpe/CAGR/DD gates required)"
+            f"risk scaling + sharpe/Calmar/DD gates required)"
         )
     elif cfg.verbose:
         print(f"  Forward info: {fwd_info.forward_file_status} joined={fwd_info.forward_joined}")
@@ -1402,7 +1429,7 @@ def _selection_thresholds_from_args(args: argparse.Namespace) -> SelectionThresh
 def _validation_thresholds_from_args(args: argparse.Namespace) -> ValidationThresholds:
     return ValidationThresholds(
         min_sharpe=float(args.min_sharpe),
-        min_cagr_pct=float(args.min_validation_cagr),
+        min_calmar=float(args.min_validation_calmar),
         max_equity_dd=float(args.max_equity_dd),
     )
 
@@ -1655,9 +1682,9 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         help="Min optimization Custom/Result (>=; default: 6)",
     )
     p.add_argument(
-        "--min-validation-cagr",
-        default=str(DEFAULT_MIN_VALIDATION_CAGR),
-        help="Min CAGR %% on real ticks (default: 10)",
+        "--min-validation-calmar",
+        default=str(DEFAULT_MIN_VALIDATION_CALMAR),
+        help="Min Calmar on real ticks (default: 1)",
     )
     p.add_argument(
         "--max-equity-dd",

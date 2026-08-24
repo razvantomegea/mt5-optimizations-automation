@@ -43,6 +43,16 @@ _Avoid_: Market Favorite Product work; inventing portfolio TF filters; EA OnInit
 A parameter set that passed full validation and was kept in the final top-K ranking (`keep=true` in `best_survivors.csv`). Produced by the existing optimize/validate path with a **No-Skip Winning Set**. A later **Skip Robustness** step may update **Skip Robustness Status** on a subset of Survivors without changing how Survivors were first created.
 _Avoid_: requiring skip robustness inside the main validate path
 
+### Calmar Validation Gate
+
+Hard real-ticks return/risk gate: **Calmar ≥ 1.0** on the validation equity series. Replaces CAGR as the return gate; CAGR is not a pass/fail criterion.
+_Avoid_: CAGR gate; dual CAGR+Calmar return gates; treating Calmar as log-only
+
+### Soft Pass
+
+A validated row that failed **only** the return-quality reject (`low_calmar`): not a **Survivor**, amber “low return” in the dashboard, still included in parameter-stats aggregation. Orphan historical `low_cagr` (Calmar missing) remains Soft Pass. Live CLI = `--min-validation-calmar` (default 1). One-shot `low_cagr` migrator was run and deleted on purpose — do not restore.
+_Avoid_: treating Soft Pass as Passed/Survivor; soft-passing Sharpe/DD/risk-scaling fails; leaving `low_cagr` as the live producer token; resurrecting the deleted migrator
+
 ### Skip Robustness Optimization
 
 A separate, complete optimization run on Every tick based on real ticks that freezes a **Survivor**'s winning parameters and permutates only `SKIP_TRADE_DAY` and `SKIP_MONTH` (60 **Skip Combinations**). Invoked by its own CLI/workflow step **after** `Best/` Survivors already exist. Stress-only — does not choose live skip values. Not Monte Carlo.
@@ -212,3 +222,8 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 - Re-run = never; **Stress test** button only while Passed + robustness not run; hide once robustness has run (pass or fail) — resolved.
 - Code note: validation today has no coded OHLC↔realticks 1% slack; +1.0 pp is skip-gate only.
 - Grill closed 2026-08-05: Skip Robustness shared understanding complete; ready for implementation plan / execute on request.
+- **Calmar Validation Gate** grill closed 2026-08-12: shared understanding complete; ready for implementation plan / execute on request.
+  - Gate = Calmar ≥ 1 (replaces CAGR); score still multiplies Calmar; CAGR logged only.
+  - Reject/Soft Pass live token = `low_calmar`; soft-pass also accepts orphan `low_cagr` when Calmar missing.
+  - CLI = `--min-validation-calmar` default 1; remove `--min-validation-cagr`.
+  - Migration one-shot: DB + explicit CSV paths; re-gate Passed-only; compound → rewrite token only; tests+docs in same change. **Executed and script deleted on purpose (2026-08-12)** — do not restore `mt5_calmar_migrate.py`.

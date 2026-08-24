@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import groupby
@@ -13,7 +14,6 @@ from typing import Any
 from mt5_equity_metrics import (
     attach_equity_to_deal_events,
     parse_deal_events,
-    _parse_mt5_datetime,
     reconstruct_deal_equity_series,
 )
 from mt5_opt_report import read_report_text, to_float
@@ -21,13 +21,16 @@ from mt5_env import load_repo_env
 
 load_repo_env()
 
+from mt5_deal_equity_sidecar import (
+    load_deal_equity_sidecar,
+    resolve_deal_equity_sidecar_path,
+)
 from mt5_ea_inputs import RISK_INPUT_NAME
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 from mt5_synthetic_report import build_synthetic_report_metrics, max_drawdown_pct, parse_iso_datetime
 
 REPORT_SUFFIXES = (".htm", ".html")
 ALL_FAVORITES_PORTFOLIO_ID = "all-favorites"
-DEAL_EQUITY_SIDECAR_SUFFIX = "_realticks_deals.json"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class StrategyDeal:
     symbol: str
     timeframe: str
     equity_after: float | None = None
+    position_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -184,13 +188,6 @@ def resolve_strategy_report_path(
     return None
 
 
-def resolve_deal_equity_sidecar_path(report_path: Path) -> Path:
-    stem = report_path.stem
-    if stem.endswith("_realticks"):
-        stem = stem[: -len("_realticks")]
-    return report_path.parent / f"{stem}{DEAL_EQUITY_SIDECAR_SUFFIX}"
-
-
 def extract_initial_deposit(
     report_path: Path | None,
     summary: dict[str, Any],
@@ -257,39 +254,6 @@ def _max_strategy_equity_dd_pct(summary: dict[str, Any]) -> float | None:
     if parsed is not None and parsed >= 0:
         return parsed
     return None
-
-
-def _parse_deal_snapshot_time(value: str) -> datetime:
-    mt5_time = _parse_mt5_datetime(value.strip())
-    if mt5_time is not None:
-        return mt5_time
-    return parse_iso_datetime(value)
-
-
-def load_deal_equity_sidecar(report_path: Path) -> list[tuple[datetime, float]]:
-    """Load ordered equity snapshots from sidecar JSON (duplicates preserved)."""
-    sidecar = resolve_deal_equity_sidecar_path(report_path)
-    if not sidecar.is_file():
-        return []
-    try:
-        payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(payload, list):
-        return []
-    points: list[tuple[datetime, float]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        time_raw = item.get("time")
-        equity = to_float(item.get("equity"))
-        if not isinstance(time_raw, str) or equity is None:
-            continue
-        try:
-            points.append((_parse_deal_snapshot_time(time_raw), equity))
-        except ValueError:
-            continue
-    return points
 
 
 def resolve_deal_equity_series(
@@ -585,27 +549,30 @@ def load_strategy_series(row: dict[str, Any]) -> StrategySeries:
     )
 
 
-def _scale_cashflow(
+@dataclass(frozen=True)
+class _OpenPositionScale:
+    """Frozen lot-scale from entry; EA sizes once and does not re-lever at exit."""
+
+    scale: float
+    scaled_entry_cashflow: float
+    position_id: str | None = None
+
+
+def _portfolio_sizing_ref(point: MergedPortfolioPoint) -> float:
+    """Prefer mark-to-market equity for sizing (matches EA ACCOUNT_EQUITY)."""
+    if point.equity is not None and point.equity > 0:
+        return point.equity
+    return point.balance
+
+
+def _event_scale(
     *,
-    portfolio_balance: float,
-    balance_delta: float,
+    sizing_ref: float,
     strategy_equity_before: float,
 ) -> float:
-    """Scale strategy cashflow to portfolio pool size before the event."""
     if strategy_equity_before <= 0:
         return 0.0
-    return balance_delta * (portfolio_balance / strategy_equity_before)
-
-
-def _scale_equity_point(
-    *,
-    portfolio_balance: float,
-    strategy_equity: float,
-    strategy_equity_before: float,
-) -> float:
-    if strategy_equity_before <= 0:
-        return portfolio_balance
-    return strategy_equity * (portfolio_balance / strategy_equity_before)
+    return sizing_ref / strategy_equity_before
 
 
 def _strategy_has_equity_data(strategy: StrategySeries) -> bool:
@@ -620,38 +587,30 @@ def _portfolio_has_equity_data(strategies: list[StrategySeries]) -> bool:
 
 def _compute_portfolio_equity_after_batch(
     *,
-    portfolio_balance_before: float,
     portfolio_balance_after: float,
     batch: list[IndexedStrategyDeal],
-) -> float | None:
-    """Mark-to-market portfolio equity after all deal events at one timestamp."""
-    deals_with_equity = [
-        item
-        for item in batch
-        if item.deal.equity_after is not None and item.deal.equity_before > 0
-    ]
-    if not deals_with_equity:
-        return portfolio_balance_after
-
-    if len(deals_with_equity) == 1:
-        deal = deals_with_equity[0].deal
-        return _scale_equity_point(
-            portfolio_balance=portfolio_balance_before,
-            strategy_equity=deal.equity_after,
-            strategy_equity_before=deal.equity_before,
-        )
-
-    portfolio_floating = 0.0
-    for item in batch:
+    scales: list[float],
+    open_floating: dict[str, float],
+    open_positions: dict[str, deque[_OpenPositionScale]],
+) -> float:
+    """Mark-to-market equity, keeping open strategies not in this batch."""
+    for item, scale in zip(batch, scales, strict=True):
         deal = item.deal
+        key = deal.result_id
+        direction = deal.direction.casefold()
+        if direction == "out" and not open_positions[key]:
+            open_floating.pop(key, None)
+            continue
         if deal.equity_after is None or deal.equity_before <= 0:
             continue
         strategy_balance_after = deal.equity_before + deal.balance_delta
-        floating = deal.equity_after - strategy_balance_after
-        portfolio_floating += floating * (
-            portfolio_balance_before / deal.equity_before
-        )
-    return portfolio_balance_after + portfolio_floating
+        floating_scale = scale
+        if direction == "in/out" and open_positions[key]:
+            floating_scale = open_positions[key][-1].scale
+        open_floating[key] = (
+            (deal.equity_after or 0.0) - strategy_balance_after
+        ) * floating_scale
+    return portfolio_balance_after + sum(open_floating.values())
 
 
 def _merged_point_to_dict(point: MergedPortfolioPoint) -> dict[str, Any]:
@@ -664,23 +623,89 @@ def _merged_point_to_dict(point: MergedPortfolioPoint) -> dict[str, Any]:
     return payload
 
 
-def _scale_closed_trade_profits(
-    strategies: list[StrategySeries],
-    balance_before_by_time: dict[datetime, float],
-) -> list[float]:
-    """Scale each closed trade independently using portfolio balance before its timestamp."""
-    scaled: list[float] = []
-    for strategy in strategies:
-        for trade in strategy.closed_trades:
-            if trade.equity_before <= 0:
-                continue
-            portfolio_balance = balance_before_by_time.get(trade.time)
-            if portfolio_balance is None:
-                continue
-            scaled.append(
-                trade.profit * (portfolio_balance / trade.equity_before)
+def _pop_open_position(
+    positions: deque[_OpenPositionScale],
+    position_id: str | None,
+) -> _OpenPositionScale | None:
+    if not positions:
+        return None
+    if position_id is not None:
+        for index, opened in enumerate(positions):
+            if opened.position_id == position_id:
+                del positions[index]
+                return opened
+    return positions.popleft()
+
+
+def _apply_scaled_deal(
+    *,
+    deal: StrategyDeal,
+    sizing_ref: float,
+    open_positions: dict[str, deque[_OpenPositionScale]],
+    scaled_trade_profits: list[float],
+) -> tuple[float, float]:
+    """Apply one deal with entry-frozen scale; return (scaled_delta, scale_used)."""
+    strategy_id = deal.result_id
+    positions = open_positions[strategy_id]
+    direction = deal.direction.casefold()
+
+    if direction == "in" or (not deal.is_closed_trade and direction not in {"out", "in/out"}):
+        scale = _event_scale(
+            sizing_ref=sizing_ref,
+            strategy_equity_before=deal.equity_before,
+        )
+        scaled_delta = deal.balance_delta * scale
+        positions.append(
+            _OpenPositionScale(
+                scale=scale,
+                scaled_entry_cashflow=scaled_delta,
+                position_id=deal.position_id,
             )
-    return scaled
+        )
+        return scaled_delta, scale
+
+    if direction == "in/out":
+        opened = _pop_open_position(positions, deal.position_id)
+        if opened is not None:
+            scale = opened.scale
+            scaled_delta = deal.balance_delta * scale
+            scaled_trade_profits.append(opened.scaled_entry_cashflow + scaled_delta)
+        else:
+            scale = _event_scale(
+                sizing_ref=sizing_ref,
+                strategy_equity_before=deal.equity_before,
+            )
+            scaled_delta = deal.balance_delta * scale
+            scaled_trade_profits.append(scaled_delta)
+        new_scale = _event_scale(
+            sizing_ref=sizing_ref,
+            strategy_equity_before=deal.equity_before,
+        )
+        positions.append(
+            _OpenPositionScale(
+                scale=new_scale,
+                scaled_entry_cashflow=0.0,
+                position_id=deal.position_id,
+            )
+        )
+        return scaled_delta, scale
+
+    # Exit (out) or exit-only unknown closed trade
+    opened = _pop_open_position(positions, deal.position_id)
+    if opened is not None:
+        scale = opened.scale
+        scaled_delta = deal.balance_delta * scale
+        scaled_trade_profits.append(opened.scaled_entry_cashflow + scaled_delta)
+        return scaled_delta, scale
+
+    scale = _event_scale(
+        sizing_ref=sizing_ref,
+        strategy_equity_before=deal.equity_before,
+    )
+    scaled_delta = deal.balance_delta * scale
+    if deal.is_closed_trade:
+        scaled_trade_profits.append(scaled_delta)
+    return scaled_delta, scale
 
 
 def _portfolio_max_equity_drawdown_pct(
@@ -688,15 +713,15 @@ def _portfolio_max_equity_drawdown_pct(
     strategies: list[StrategySeries],
     equity_curve_for_dd: list[float],
 ) -> float | None:
-    """Prefer MT5 report equity DD for a solo portfolio; else use merged equity curve."""
+    """Use merged equity curve when available; solo report DD only as fallback."""
+    if len(equity_curve_for_dd) >= 2:
+        return max_drawdown_pct(equity_curve_for_dd)
+
     if len(strategies) == 1:
         solo_dd = strategies[0].realticks_equity_dd_pct
         if solo_dd is not None:
             return solo_dd
-
-    if len(equity_curve_for_dd) < 2:
-        return None
-    return max_drawdown_pct(equity_curve_for_dd)
+    return None
 
 
 def merge_strategy_series(
@@ -710,7 +735,7 @@ def merge_strategy_series(
     if initial_deposit is not None:
         deposit = initial_deposit
     else:
-        deposit = strategies[0].initial_deposit
+        deposit = max(strategy.initial_deposit for strategy in strategies)
         if deposit <= 0:
             raise ValueError("Could not resolve initial deposit for portfolio merge")
 
@@ -726,31 +751,38 @@ def merge_strategy_series(
     ]
     balance_curve_for_dd: list[float] = [deposit]
     equity_curve_for_dd: list[float] = [deposit] if equity_metrics_available else []
-    balance_before_by_time: dict[datetime, float] = {first_time: deposit}
+    open_positions: dict[str, deque[_OpenPositionScale]] = defaultdict(deque)
+    open_floating: dict[str, float] = {}
+    scaled_trade_profits: list[float] = []
 
     for batch_time, batch in group_indexed_deals_by_time(indexed_deals):
         active_batch = [item for item in batch if item.deal.equity_before > 0]
         if not active_batch:
             continue
 
+        sizing_ref = _portfolio_sizing_ref(points[-1])
         balance_before = points[-1].balance
-        balance_before_by_time[batch_time] = balance_before
-        batch_balance_delta = sum(
-            _scale_cashflow(
-                portfolio_balance=balance_before,
-                balance_delta=item.deal.balance_delta,
-                strategy_equity_before=item.deal.equity_before,
+        scales: list[float] = []
+        batch_balance_delta = 0.0
+        for item in active_batch:
+            scaled_delta, scale = _apply_scaled_deal(
+                deal=item.deal,
+                sizing_ref=sizing_ref,
+                open_positions=open_positions,
+                scaled_trade_profits=scaled_trade_profits,
             )
-            for item in active_batch
-        )
+            batch_balance_delta += scaled_delta
+            scales.append(scale)
         balance_after = balance_before + batch_balance_delta
 
         equity_after: float | None = None
         if equity_metrics_available:
             equity_after = _compute_portfolio_equity_after_batch(
-                portfolio_balance_before=balance_before,
                 portfolio_balance_after=balance_after,
                 batch=active_batch,
+                scales=scales,
+                open_floating=open_floating,
+                open_positions=open_positions,
             )
 
         points.append(
@@ -779,13 +811,12 @@ def merge_strategy_series(
     max_strategy_equity_dd = max(strategy_equity_dds) if strategy_equity_dds else None
 
     strategy_ids = [strategy.result_id for strategy in strategies]
-    total_closed_trades = sum(len(strategy.closed_trades) for strategy in strategies)
-    scaled_closed_profits = _scale_closed_trade_profits(strategies, balance_before_by_time)
+    total_closed_trades = len(scaled_trade_profits)
 
     synthetic = build_synthetic_report_metrics(
         initial_deposit=deposit,
         equity_curve=equity_curve,
-        trade_profits=scaled_closed_profits,
+        trade_profits=scaled_trade_profits,
         drawdown_pct=max_balance_dd_pct,
         drawdown_label="Balance Drawdown Relative",
         equity_drawdown_pct=max_equity_dd_pct,

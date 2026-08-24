@@ -8,8 +8,7 @@ import sys
 from pathlib import Path
 
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
-
-REPORT_SUFFIXES = {".htm", ".html", ".xml"}
+from mt5_deal_equity_sidecar import is_matching_strategy_artifact
 
 
 def _rollback_moves(moves: list[tuple[Path, Path]]) -> None:
@@ -40,9 +39,7 @@ def transfer_strategy(
         for report in sorted(src_report_dir.iterdir()):
             if not report.is_file():
                 continue
-            if report.suffix.lower() not in REPORT_SUFFIXES:
-                continue
-            if stem not in report.name:
+            if not is_matching_strategy_artifact(report.name, stem):
                 continue
             report_moves.append((report, dest_report_dir / report.name))
 

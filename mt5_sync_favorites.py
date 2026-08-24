@@ -13,15 +13,9 @@ from mt5_optimization_set_paths import (
     resolve_favorite_source_set_file,
 )
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
+from mt5_deal_equity_sidecar import is_matching_realticks_artifact
 from mt5_workspace import PACKAGE_ROOT
 from mt5_trade_echo_api import TradeEchoOptimizerApi
-
-REPORT_SUFFIXES = {".htm", ".html", ".xml"}
-
-
-def _is_matching_report_file(report_name: str, stem: str) -> bool:
-    suffix = Path(report_name).suffix.lower()
-    return suffix in REPORT_SUFFIXES and stem in report_name and "_realticks" in report_name
 
 
 def _copy_set_file(set_file: Path, favorites_dir: Path) -> Path:
@@ -50,7 +44,7 @@ def _copy_matching_reports(
     for report in sorted(src_report_dir.iterdir()):
         if not report.is_file():
             continue
-        if not _is_matching_report_file(report.name, stem):
+        if not is_matching_realticks_artifact(report.name, stem):
             continue
         dest_report = dest_report_dir / report.name
         if dest_report.is_file():
@@ -68,7 +62,10 @@ def _has_realticks_report(
     stem: str,
     copied: list[Path],
 ) -> bool:
-    if any("_realticks" in path.name for path in copied):
+    if any(
+        path.suffix.lower() in {".htm", ".html"} and "_realticks" in path.name
+        for path in copied
+    ):
         return True
     report_dir = favorites_dir / "reports" / symbol
     if not report_dir.is_dir():

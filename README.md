@@ -4,27 +4,27 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 
 ## What is included
 
-| Script                       | Purpose                                                             |
-| ---------------------------- | ------------------------------------------------------------------- |
-| `mt5_heartbeat.py`           | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume           |
-| `start_mt5_heartbeat.bat`    | Launch `mt5_heartbeat.py` from this folder (visible console)        |
-| `install_heartbeat_startup.bat` | Install Windows Startup shortcut for the heartbeat worker        |
-| `uninstall_heartbeat_startup.bat` | Remove the Windows Startup heartbeat shortcut                 |
-| `mt5_stop.py`                | Stop `terminal64.exe` and batch optimizer Python processes          |
-| `mt5_clean_cache.py`         | Clear MT5 tester cache and local batch artifacts                    |
-| `mt5_sync_favorites.py`      | Copy dashboard favorites from `Best/` to `Favorites/`               |
-| `mt5_batch_optimize.py`      | Batch forward optimization + per-job validation                     |
-| `mt5_opt_report.py`          | Optimization XML parsing and candidate filters                      |
-| `mt5_equity_metrics.py`      | Equity-curve metrics from backtest HTML                             |
-| `mt5_db_report.py`           | Push run status and validation rows to Postgres                     |
-| `mt5_portfolio_favorites.py` | Merge all dashboard favorites into one portfolio snapshot           |
-| `mt5_portfolio_merge.py`     | Trade-by-trade portfolio merge helpers                              |
-| `mt5_favorite_strategy.py`   | Copy a survivor's `.set` + reports from `Best/` to `Favorites/`     |
-| `mt5_skip_robustness.py`     | Skip Robustness stress: skip-day×skip-month combos on real ticks |
-| `mt5_tester_runtime.py`      | Shared tester ini / report-path / terminal helpers              |
-| `mt5_ea_inputs.py`           | Env-overridable EA input names and skip grids                   |
-| `mt5_step_usage.py`          | Excel workbook: which grid steps survivors used                     |
-| `mt5_set_files.py`           | Generic `.set` discovery (nested or flat layouts)                   |
+| Script                            | Purpose                                                          |
+| --------------------------------- | ---------------------------------------------------------------- |
+| `mt5_heartbeat.py`                | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume        |
+| `start_mt5_heartbeat.bat`         | Launch `mt5_heartbeat.py` from this folder (visible console)     |
+| `install_heartbeat_startup.bat`   | Install Windows Startup shortcut for the heartbeat worker        |
+| `uninstall_heartbeat_startup.bat` | Remove the Windows Startup heartbeat shortcut                    |
+| `mt5_stop.py`                     | Stop `terminal64.exe` and batch optimizer Python processes       |
+| `mt5_clean_cache.py`              | Clear MT5 tester cache and local batch artifacts                 |
+| `mt5_sync_favorites.py`           | Copy dashboard favorites from `Best/` to `Favorites/`            |
+| `mt5_batch_optimize.py`           | Batch forward optimization + per-job validation                  |
+| `mt5_opt_report.py`               | Optimization XML parsing and candidate filters                   |
+| `mt5_equity_metrics.py`           | Equity-curve metrics from backtest HTML                          |
+| `mt5_db_report.py`                | Push run status and validation rows to Postgres                  |
+| `mt5_portfolio_favorites.py`      | Merge all dashboard favorites into one portfolio snapshot        |
+| `mt5_portfolio_merge.py`          | Trade-by-trade portfolio merge helpers                           |
+| `mt5_favorite_strategy.py`        | Copy a survivor's `.set` + reports from `Best/` to `Favorites/`  |
+| `mt5_skip_robustness.py`          | Skip Robustness stress: skip-day×skip-month combos on real ticks |
+| `mt5_tester_runtime.py`           | Shared tester ini / report-path / terminal helpers               |
+| `mt5_ea_inputs.py`                | Env-overridable EA input names and skip grids                    |
+| `mt5_step_usage.py`               | Excel workbook: which grid steps survivors used                  |
+| `mt5_set_files.py`                | Generic `.set` discovery (nested or flat layouts)                |
 
 ## What is **not** included (private)
 
@@ -128,19 +128,19 @@ Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategie
 
 ## Environment variables
 
-| Variable                      | Required | Description                                      |
-| ----------------------------- | -------- | ------------------------------------------------ |
+| Variable                      | Required | Description                                                                              |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------------- |
 | `MT5_SET_DIR`                 | No\*     | Folder with `.set` grids (default: `./SetFiles` if populated, else `../../EAs/SetFiles`) |
-| `MT5_EXPERT`                  | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)  |
-| `MT5_TERMINAL`                | No       | Path to `terminal64.exe` (else first existing of FTMO / MetaTrader 5 install) |
-| `MT5_RISK_INPUT`              | No       | EA risk input name (default: `RISK`)             |
-| `MT5_SKIP_DAY_INPUT`          | No       | Skip-day input name (default: `SKIP_TRADE_DAY`)  |
-| `MT5_SKIP_MONTH_INPUT`        | No       | Skip-month input name (default: `SKIP_MONTH`)    |
-| `MT5_SKIP_DAY_GRID`           | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`) |
-| `MT5_SKIP_MONTH_GRID`         | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`) |
-| `TRADEECHO_USER_ID`           | Yes      | Your TradeEcho User ID (Ultimate plan)           |
-| `TRADEECHO_API_BASE_URL`      | No       | API host (default: `https://trade-echo.com`)     |
-| `TRADEECHO_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)  |
+| `MT5_EXPERT`                  | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)                                          |
+| `MT5_TERMINAL`                | No       | Path to `terminal64.exe` (else first existing of FTMO / MetaTrader 5 install)            |
+| `MT5_RISK_INPUT`              | No       | EA risk input name (default: `RISK`)                                                     |
+| `MT5_SKIP_DAY_INPUT`          | No       | Skip-day input name (default: `SKIP_TRADE_DAY`)                                          |
+| `MT5_SKIP_MONTH_INPUT`        | No       | Skip-month input name (default: `SKIP_MONTH`)                                            |
+| `MT5_SKIP_DAY_GRID`           | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`)                                |
+| `MT5_SKIP_MONTH_GRID`         | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`)                             |
+| `TRADEECHO_USER_ID`           | Yes      | Your TradeEcho User ID (Ultimate plan)                                                   |
+| `TRADEECHO_API_BASE_URL`      | No       | API host (default: `https://trade-echo.com`)                                             |
+| `TRADEECHO_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)                                          |
 
 \*Required when `SetFiles/` is empty and you do not pass `--validate-set-dir`.
 
@@ -207,7 +207,7 @@ python mt5_batch_optimize.py --validate-only `
 
 **No candidates after optimization?** Check forward-selection counts in `--verbose` output (`back_sharpe`, `forward_sharpe`, `forward_result` rejections).
 
-**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_cagr`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, or risk-scaling failures.
+**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, or risk-scaling failures.
 
 ### Resume after interruption
 
@@ -264,7 +264,7 @@ python mt5_step_usage.py --best-dir "C:\path\to\Best" --out reports/custom_step_
 
 ### All-favorites portfolio
 
-Merge every strategy you favorited in the TradeEcho dashboard into one trade-by-trade backtest and save the snapshot to Postgres:
+Merge every strategy you favorited in the TradeEcho dashboard into one trade-by-trade backtest and save the snapshot to Postgres. Cashflows are scaled to the shared account using **equity at entry** (lot size frozen for the life of the position), not re-levered at close when other strategies move the balance.
 
 ```powershell
 python mt5_portfolio_favorites.py
@@ -310,10 +310,12 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                   |
 | Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD; reject if scaled RISK **< 1**, or scaled OHLC or real-ticks DD **> 17%** |
 | Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
-| Real-ticks validation gates       | Sharpe **≥ 1.0**, CAGR **≥ 10%**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                     |
+| Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                   |
 | Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **25**)                                   |
 
-Recovery, LR Correlation, Calmar, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates.
+Recovery, LR Correlation, CAGR, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates. Calmar is both a gate and a factor in `validation_score`.
+
+Dashboard soft-pass treats return-only rejects as amber “low return”: live token `low_calmar`, plus orphan historical `low_cagr` when Calmar is missing. A one-shot DB/CSV migrator rewrote eligible `low_cagr` rows and was removed on purpose.
 
 ### Forward data
 
@@ -342,7 +344,7 @@ Override any column with `--col-sharpe`, `--col-recovery`, `--col-custom`, etc.
 
 ### Validation CSVs
 
-**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_cagr_pct`, `validation_pass`, and `reject_reason` (`low_cagr`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_nonlinear`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
+**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_calmar`, `validation_pass`, and `reject_reason` (`low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_nonlinear`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_cagr_pct`, `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
 
 **`best_survivors.csv`** — subset where `keep=true` (header-only when none pass).
 
@@ -406,7 +408,7 @@ You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
 ### Step 3 — Start a run from the dashboard
 
-Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), and optimization mode (fast genetic vs slow complete), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
+Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), optimization mode (fast genetic vs slow complete), **currency**, **account balance**, and **max equity drawdown %** (default 15; the worker sets `--target-equity-dd` to that value and `--max-equity-dd` to `round(target × 1.12)`, e.g. 15 → 17), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
 
 ### Step 4 — Monitor live results
 
@@ -443,36 +445,37 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 
 ## Key CLI options
 
-| Option                        | Default                                           | Description                                                  |
-| ----------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| `--terminal`                  | `C:\Program Files\MetaTrader FTMO\terminal64.exe` | Path to MT5 terminal                                         |
-| `--mt5-data`                  | auto via `origin.txt`                             | MT5 data directory (or `--portable`)                         |
-| `--work-dir`                  | `.`                                               | Root for generated files and logs                            |
-| `--symbols` / `--timeframes`  | 28 symbols / M5 M15 H1 H4                         | Job matrix; also filters validate-only                       |
-| `--param-files`               | all under `SetFiles/`                             | Optimization parameter files (auto-discovered)               |
-| `--strategies`                | all discovered                                    | Restrict to `Classic`, `Multi`, and/or `SwingHA`             |
-| `--from-date` / `--to-date`   | required (except validate-only)                   | `YYYY.MM.DD`                                                 |
-| `--optimization`              | `2`                                               | Fast genetic; use `--complete-opt` for complete + real ticks |
-| `--model`                     | `1`                                               | 1-minute OHLC by default                                     |
-| `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                  |
-| `--criterion`                 | `6`                                               | Optimization criterion                                       |
-| `--forward-mode`              | `2`                                               | Forward testing mode                                         |
-| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                            |
-| `--validate-keep-top-k`       | `25`                                              | Top survivors per job after validation ranking               |
-| `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                      |
-| `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                          |
-| `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation |
-| `--min-validation-cagr`       | `10`                                              | Real-ticks CAGR % gate (≥)                                   |
-| `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD %                       |
-| `--min-scaled-risk`           | `1.0`                                             | Reject when scaled RISK is below this                        |
-| `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling                                |
-| `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                              |
-| `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                |
-| `--backtest-timeout-seconds`  | `1800`                                            | Per validation backtest timeout                              |
-| `--best-dir`                  | `reports/Best`                                    | Survivor output folder                                       |
-| `--delay-seconds`             | `2`                                               | Pause between jobs                                           |
-| `--timeout-minutes`           | `0` (none)                                        | Per-job optimization timeout                                 |
-| `--resume`                    | off                                               | Skip jobs with existing reports                              |
+| Option                        | Default                                           | Description                                                                  |
+| ----------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `--terminal`                  | `C:\Program Files\MetaTrader FTMO\terminal64.exe` | Path to MT5 terminal                                                         |
+| `--mt5-data`                  | auto via `origin.txt`                             | MT5 data directory (or `--portable`)                                         |
+| `--work-dir`                  | `.`                                               | Root for generated files and logs                                            |
+| `--symbols` / `--timeframes`  | 28 symbols / M5 M15 H1 H4                         | Job matrix; also filters validate-only                                       |
+| `--param-files`               | all under `SetFiles/`                             | Optimization parameter files (auto-discovered)                               |
+| `--strategies`                | all discovered                                    | Restrict to `Classic`, `Multi`, and/or `SwingHA`                             |
+| `--from-date` / `--to-date`   | required (except validate-only)                   | `YYYY.MM.DD`                                                                 |
+| `--optimization`              | `2`                                               | Fast genetic; use `--complete-opt` for complete + real ticks                 |
+| `--model`                     | `1`                                               | 1-minute OHLC by default                                                     |
+| `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                                  |
+| `--criterion`                 | `6`                                               | Optimization criterion                                                       |
+| `--forward-mode`              | `2`                                               | Forward testing mode                                                         |
+| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                                            |
+| `--validate-keep-top-k`       | `25`                                              | Top survivors per job after validation ranking                               |
+| `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                                      |
+| `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                                          |
+| `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation                 |
+| `--min-validation-calmar`     | `1`                                               | Real-ticks Calmar gate (≥)                                                   |
+| `--deposit` / `--currency`    | `100000` / `USD`                                  | Tester account balance and currency (dashboard Start/Resume forwards these)  |
+| `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD % (dashboard **Max equity drawdown %**) |
+| `--min-scaled-risk`           | `1.0`                                             | Reject when scaled RISK is below this                                        |
+| `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling; dashboard derives `round(target × 1.12)`      |
+| `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                                              |
+| `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                                |
+| `--backtest-timeout-seconds`  | `1800`                                            | Per validation backtest timeout                                              |
+| `--best-dir`                  | `reports/Best`                                    | Survivor output folder                                                       |
+| `--delay-seconds`             | `2`                                               | Pause between jobs                                                           |
+| `--timeout-minutes`           | `0` (none)                                        | Per-job optimization timeout                                                 |
+| `--resume`                    | off                                               | Skip jobs with existing reports                                              |
 
 Run `python mt5_batch_optimize.py --help` for the full list.
 

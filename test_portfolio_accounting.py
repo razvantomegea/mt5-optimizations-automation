@@ -241,7 +241,7 @@ def test_equity_drawdown_differs_from_balance_drawdown() -> None:
                         equity_before=100_000,
                         direction="in",
                         is_closed_trade=False,
-                        equity_after=99_000,
+                        equity_after=80_000,
                     ),
                     deal(
                         time=exit_time,
@@ -249,10 +249,10 @@ def test_equity_drawdown_differs_from_balance_drawdown() -> None:
                         equity_before=99_990,
                         direction="out",
                         is_closed_trade=True,
-                        equity_after=89_000,
+                        equity_after=89_990,
                     ),
                 ),
-                equity_at_deals=((entry, 99_000), (exit_time, 89_000)),
+                equity_at_deals=((entry, 80_000), (exit_time, 89_990)),
             )
         ],
         initial_deposit=100_000,
@@ -263,6 +263,9 @@ def test_equity_drawdown_differs_from_balance_drawdown() -> None:
     assert balance_dd is not None
     assert equity_dd is not None
     assert equity_dd > balance_dd
+    assert merged.equity_curve[-1]["equity"] == pytest.approx(
+        merged.equity_curve[-1]["balance"]
+    )
 
 
 def test_sharpe_equity_vs_balance_returns() -> None:
@@ -310,3 +313,255 @@ def test_max_drawdown_from_balance_and_equity_curves() -> None:
     assert max_drawdown_pct(equities) == pytest.approx(
         (105_000 - 90_000) / 105_000 * 100
     )
+
+
+def test_overlapping_hold_does_not_relever_at_close() -> None:
+    """Lots freeze at entry; a later winner must not re-lever an open trade at exit."""
+    entry = datetime(2020, 1, 1)
+    mid = datetime(2020, 1, 5)
+    exit_a = datetime(2020, 1, 10)
+
+    merged = merge_strategy_series(
+        [
+            series(
+                result_id="a",
+                trades=(
+                    trade(
+                        time=exit_a,
+                        profit=1_000,
+                        equity_before=100_000,
+                        result_id="a",
+                    ),
+                ),
+                deals=(
+                    deal(
+                        time=entry,
+                        balance_delta=-10,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="a",
+                    ),
+                    deal(
+                        time=exit_a,
+                        balance_delta=1_010,
+                        equity_before=99_990,
+                        direction="out",
+                        is_closed_trade=True,
+                        result_id="a",
+                    ),
+                ),
+            ),
+            series(
+                result_id="b",
+                trades=(
+                    trade(
+                        time=mid,
+                        profit=50_000,
+                        equity_before=100_000,
+                        result_id="b",
+                    ),
+                ),
+            ),
+        ],
+        initial_deposit=100_000,
+    )
+
+    # 100000 - 10 + 50000*(99990/100000) + 1010*1.0 (entry scale, not close-time)
+    assert merged.equity_curve[-1]["balance"] == pytest.approx(150_995.0)
+
+    metrics = merged.report_metrics["metrics"]
+    gross_profit = float(metrics["Gross profit"].replace(",", ""))
+    gross_loss = float(metrics["Gross loss"].replace(",", ""))
+    net = merged.equity_curve[-1]["balance"] - 100_000
+    assert gross_profit + gross_loss == pytest.approx(net, abs=0.02)
+    assert float(metrics["Profit factor"]) == pytest.approx(
+        gross_profit / abs(gross_loss) if gross_loss else gross_profit,
+        abs=0.02,
+    )
+
+
+def test_scaled_trade_profits_sum_to_curve_net() -> None:
+    merged = merge_strategy_series(
+        [
+            series(
+                result_id="first",
+                trades=(
+                    trade(
+                        time=datetime(2020, 1, 1),
+                        profit=500,
+                        equity_before=100_000,
+                        result_id="first",
+                    ),
+                ),
+            ),
+            series(
+                result_id="second",
+                trades=(
+                    trade(
+                        time=datetime(2020, 1, 2),
+                        profit=1_000,
+                        equity_before=100_000,
+                        result_id="second",
+                    ),
+                ),
+            ),
+        ],
+        initial_deposit=100_000,
+    )
+
+    metrics = merged.report_metrics["metrics"]
+    gross_profit = float(metrics["Gross profit"].replace(",", ""))
+    gross_loss = float(metrics["Gross loss"].replace(",", ""))
+    net = merged.equity_curve[-1]["balance"] - 100_000
+    assert gross_profit + gross_loss == pytest.approx(net, abs=0.02)
+    assert merged.equity_curve[-1]["balance"] == pytest.approx(101_505.0)
+
+
+def test_drawdown_money_uses_peak_to_trough_not_deposit_pct() -> None:
+    from mt5_synthetic_report import build_synthetic_report_metrics, max_drawdown_money
+
+    curve = [
+        {"time": "2020-01-01T00:00:00", "balance": 100_000},
+        {"time": "2020-01-02T00:00:00", "balance": 200_000},
+        {"time": "2020-01-03T00:00:00", "balance": 180_000},
+    ]
+    assert max_drawdown_money([100_000, 200_000, 180_000]) == pytest.approx(20_000.0)
+
+    result = build_synthetic_report_metrics(
+        initial_deposit=100_000,
+        equity_curve=curve,
+        trade_profits=[100_000, -20_000],
+        drawdown_label="Balance Drawdown Relative",
+        equity_metrics_available=False,
+        sharpe_source="balance",
+    )
+    dd_label = result.report_metrics["metrics"]["Balance Drawdown Relative"]
+    assert "20,000.00" in dd_label
+    assert "10,000.00" not in dd_label
+    recovery = float(result.report_metrics["metrics"]["Recovery factor"])
+    assert recovery == pytest.approx(80_000 / 20_000)
+
+
+def test_open_strategy_floating_persists_when_other_strategy_deals() -> None:
+    entry = datetime(2020, 1, 1)
+    other = datetime(2020, 1, 2)
+
+    merged = merge_strategy_series(
+        [
+            series(
+                result_id="open",
+                trades=(),
+                deals=(
+                    deal(
+                        time=entry,
+                        balance_delta=-10,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="open",
+                        equity_after=99_000,
+                    ),
+                ),
+                equity_at_deals=((entry, 99_000),),
+            ),
+            series(
+                result_id="closed",
+                trades=(
+                    trade(
+                        time=other,
+                        profit=1_000,
+                        equity_before=100_000,
+                        result_id="closed",
+                    ),
+                ),
+            ),
+        ],
+        initial_deposit=100_000,
+    )
+
+    later = [point for point in merged.equity_curve if point["time"] == other.isoformat()]
+    assert later
+    assert later[-1]["equity"] == pytest.approx(99_990.0)
+
+
+def test_overlapping_entries_closed_in_reverse_use_matching_scales() -> None:
+    first_in = datetime(2020, 1, 1)
+    other_close = datetime(2020, 1, 2)
+    second_in = datetime(2020, 1, 3)
+    second_out = datetime(2020, 1, 4)
+    first_out = datetime(2020, 1, 5)
+
+    merged = merge_strategy_series(
+        [
+            series(
+                result_id="a",
+                trades=(),
+                deals=(
+                    deal(
+                        time=first_in,
+                        balance_delta=-10,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="a",
+                        position_id="p1",
+                    ),
+                    deal(
+                        time=second_in,
+                        balance_delta=-10,
+                        equity_before=100_000,
+                        direction="in",
+                        is_closed_trade=False,
+                        result_id="a",
+                        position_id="p2",
+                    ),
+                    deal(
+                        time=second_out,
+                        balance_delta=1_010,
+                        equity_before=99_990,
+                        direction="out",
+                        is_closed_trade=True,
+                        result_id="a",
+                        position_id="p2",
+                    ),
+                    deal(
+                        time=first_out,
+                        balance_delta=1_010,
+                        equity_before=99_990,
+                        direction="out",
+                        is_closed_trade=True,
+                        result_id="a",
+                        position_id="p1",
+                    ),
+                ),
+            ),
+            series(
+                result_id="b",
+                trades=(
+                    trade(
+                        time=other_close,
+                        profit=50_000,
+                        equity_before=100_000,
+                        result_id="b",
+                    ),
+                ),
+            ),
+        ],
+        initial_deposit=100_000,
+    )
+
+    after_second_close = [
+        point
+        for point in merged.equity_curve
+        if point["time"] == second_out.isoformat()
+    ]
+    assert after_second_close
+    # p2 scale is frozen at entry after B's +50k, not p1's scale of 1.0
+    assert after_second_close[-1]["balance"] == pytest.approx(151_484.85, abs=0.02)
+    assert merged.total_trades == 3
+    gross_profit = float(
+        merged.report_metrics["metrics"]["Gross profit"].replace(",", "")
+    )
+    # B 49995 + p2 1499.85 + p1 1000
+    assert gross_profit == pytest.approx(52_494.85, abs=0.02)

@@ -38,6 +38,19 @@ def max_drawdown_pct(balances: list[float]) -> float:
     return max_dd
 
 
+def max_drawdown_money(values: list[float]) -> float:
+    """Largest peak-to-trough drop in currency units (not deposit × pct)."""
+    if not values:
+        return 0.0
+    peak = values[0]
+    max_dd = 0.0
+    for value in values:
+        if value > peak:
+            peak = value
+        max_dd = max(max_dd, peak - value)
+    return max_dd
+
+
 def profit_factor(trade_profits: list[float]) -> float:
     gross_profit = sum(profit for profit in trade_profits if profit > 0)
     gross_loss = abs(sum(profit for profit in trade_profits if profit < 0))
@@ -96,6 +109,7 @@ def build_synthetic_report_metrics(
         (net_profit / initial_deposit * 100.0) if initial_deposit > 0 else 0.0
     )
     max_dd_pct = drawdown_pct if drawdown_pct is not None else max_drawdown_pct(balances)
+    max_dd_money = max_drawdown_money(balances)
 
     equity_dd_available = equity_metrics_available and len(equities) >= 2
     if equity_drawdown_pct is not None:
@@ -104,6 +118,9 @@ def build_synthetic_report_metrics(
         resolved_equity_dd_pct = max_drawdown_pct(equities)
     else:
         resolved_equity_dd_pct = None
+    equity_dd_money = (
+        max_drawdown_money(equities) if equity_dd_available else None
+    )
 
     total_trades = len(trade_profits)
     wins = sum(1 for profit in trade_profits if profit > 0)
@@ -122,7 +139,8 @@ def build_synthetic_report_metrics(
         if point.get("time")
     ]
     equity_quality = None
-    if len(times) == len(balances) and len(balances) >= 2:
+    quality_series = sharpe_series if sharpe_series is not None else balances
+    if len(times) == len(quality_series) and len(quality_series) >= 2:
         dd_for_quality = (
             resolved_equity_dd_pct
             if resolved_equity_dd_pct is not None
@@ -130,13 +148,13 @@ def build_synthetic_report_metrics(
         )
         equity_quality = compute_equity_quality_from_series(
             times,
-            balances,
+            quality_series,
             equity_dd_pct=max(dd_for_quality, 0.01),
         )
 
-    dd_value = f"{max_dd_pct:.2f}% ({initial_deposit * max_dd_pct / 100.0:,.2f})"
+    dd_value = f"{max_dd_pct:.2f}% ({max_dd_money:,.2f})"
     equity_dd_value = (
-        f"{resolved_equity_dd_pct:.2f}% ({initial_deposit * resolved_equity_dd_pct / 100.0:,.2f})"
+        f"{resolved_equity_dd_pct:.2f}% ({(equity_dd_money if equity_dd_money is not None else max_dd_money):,.2f})"
         if resolved_equity_dd_pct is not None
         else "N/A"
     )
@@ -145,6 +163,7 @@ def build_synthetic_report_metrics(
         if drawdown_label == "Equity Drawdown Relative"
         else dd_value
     )
+    recovery_denom = max_dd_money
     metrics: dict[str, str] = {
         "Initial deposit": f"{initial_deposit:,.2f}",
         "Total net profit": f"{net_profit:,.2f} ({net_profit_pct:.2f}%)",
@@ -155,9 +174,7 @@ def build_synthetic_report_metrics(
             f"{(net_profit / total_trades):,.2f}" if total_trades else "0.00"
         ),
         "Recovery factor": (
-            f"{(net_profit / (initial_deposit * max_dd_pct / 100.0)):.2f}"
-            if max_dd_pct > 0
-            else "0.00"
+            f"{(net_profit / recovery_denom):.2f}" if recovery_denom > 0 else "0.00"
         ),
         "Sharpe Ratio": f"{sharpe_value:.4f}" if sharpe_value is not None else "N/A",
         drawdown_label: primary_dd_value,

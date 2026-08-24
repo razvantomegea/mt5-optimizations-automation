@@ -330,13 +330,7 @@ def attach_equity_to_deal_events(
     events: list[DealEvent],
     equity_series: list[tuple[datetime, float]],
 ) -> list[tuple[DealEvent, float | None]]:
-    """Attach equity snapshots to deal events by index, or FIFO-by-timestamp when lengths differ."""
-    if len(equity_series) == len(events):
-        return [
-            (event, equity_series[index][1])
-            for index, event in enumerate(events)
-        ]
-
+    """Attach equity snapshots to deal events by FIFO timestamp (never zip by length alone)."""
     from collections import defaultdict, deque
 
     by_time: dict[datetime, deque[float]] = defaultdict(deque)
@@ -399,7 +393,7 @@ def _parse_deal_events(
             continue
         equity_before = running_balance
         balance_delta = parsed_balance - equity_before
-        if balance_delta == 0:
+        if balance_delta == 0 and direction != "in":
             running_balance = parsed_balance
             continue
         events.append(

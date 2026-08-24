@@ -16,7 +16,19 @@ TOKEN_PATTERN = re.compile(r"^[A-Z0-9._]+$")
 ALLOWED_STRATEGIES = frozenset({"Classic", "Multi", "SwingHA"})
 _ALLOWED_STRATEGIES_BY_LOWER = {s.lower(): s for s in ALLOWED_STRATEGIES}
 ALLOWED_OPTIMIZATION_MODES = frozenset({"1", "2"})
+ALLOWED_CURRENCIES = frozenset(
+    {"USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"}
+)
 SET_FILE_PATTERN = re.compile(r"^[A-Za-z0-9._-]+\.set$")
+
+DEFAULT_DEPOSIT = "100000"
+DEFAULT_CURRENCY = "USD"
+DEFAULT_MAX_EQUITY_DRAWDOWN_PERCENT = 15.0
+
+
+def scaled_max_equity_drawdown_percent(target: float) -> float:
+    """Reject ceiling after RISK scaling: JS Math.round(target × 1.12) for positives."""
+    return float(math.floor(target * 1.12 + 0.5))
 
 
 @dataclass(frozen=True)
@@ -29,6 +41,9 @@ class OptimizeConfig:
     optimization_mode: str
     resume: bool
     skip_robustness: bool = True
+    deposit: str = DEFAULT_DEPOSIT
+    currency: str = DEFAULT_CURRENCY
+    max_equity_drawdown_percent: float = DEFAULT_MAX_EQUITY_DRAWDOWN_PERCENT
 
 
 @dataclass(frozen=True)
@@ -41,6 +56,8 @@ class SkipRobustnessCommand:
     baseline_dd: float
     scaled_risk: float | None
     result_id: str
+    deposit: str | None = None
+    currency: str | None = None
 
 
 LogFn = Callable[[str], None]
@@ -78,6 +95,7 @@ class WorkerStore(Protocol):
 
 
 def build_optimize_argv(config: OptimizeConfig, *, script_path: str, expert: str) -> list[str]:
+    max_equity_dd = scaled_max_equity_drawdown_percent(config.max_equity_drawdown_percent)
     argv = [
         script_path,
         "--from-date",
@@ -94,6 +112,14 @@ def build_optimize_argv(config: OptimizeConfig, *, script_path: str, expert: str
         config.optimization_mode,
         "--expert",
         expert,
+        "--deposit",
+        config.deposit,
+        "--currency",
+        config.currency,
+        "--target-equity-dd",
+        str(config.max_equity_drawdown_percent),
+        "--max-equity-dd",
+        str(max_equity_dd),
     ]
     if config.resume:
         argv.append("--resume")
@@ -166,6 +192,52 @@ def _read_skip_robustness(payload: dict[str, Any]) -> bool:
     return value
 
 
+def _read_currency(payload: dict[str, Any]) -> str:
+    if "currency" not in payload or payload.get("currency") in (None, ""):
+        return DEFAULT_CURRENCY
+    value = str(payload.get("currency") or "").strip().upper()
+    if value not in ALLOWED_CURRENCIES:
+        raise ValueError("start/resume currency is invalid")
+    return value
+
+
+def _read_deposit(payload: dict[str, Any]) -> str:
+    if "deposit" not in payload or payload.get("deposit") is None:
+        return DEFAULT_DEPOSIT
+    raw = payload.get("deposit")
+    if isinstance(raw, bool):
+        raise ValueError("start/resume deposit must be a positive number")
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("start/resume deposit must be a positive number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("start/resume deposit must be a positive number")
+    if isinstance(raw, int) or (isinstance(raw, float) and raw == int(raw)):
+        return str(int(parsed))
+    text = str(raw).strip()
+    if not text:
+        raise ValueError("start/resume deposit must be a positive number")
+    return text
+
+
+def _read_max_equity_drawdown_percent(payload: dict[str, Any]) -> float:
+    if "maxEquityDrawdownPercent" not in payload:
+        return DEFAULT_MAX_EQUITY_DRAWDOWN_PERCENT
+    raw = payload.get("maxEquityDrawdownPercent")
+    if isinstance(raw, bool):
+        raise ValueError("start/resume maxEquityDrawdownPercent must be a positive number")
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "start/resume maxEquityDrawdownPercent must be a positive number"
+        ) from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("start/resume maxEquityDrawdownPercent must be a positive number")
+    return parsed
+
+
 def read_start_payload(*, action: str, payload: dict[str, Any]) -> OptimizeConfig:
     return OptimizeConfig(
         from_date=_read_validated_date(payload, "fromDate"),
@@ -176,6 +248,9 @@ def read_start_payload(*, action: str, payload: dict[str, Any]) -> OptimizeConfi
         optimization_mode=_read_validated_optimization_mode(payload),
         resume=action == "resume",
         skip_robustness=_read_skip_robustness(payload),
+        deposit=_read_deposit(payload),
+        currency=_read_currency(payload),
+        max_equity_drawdown_percent=_read_max_equity_drawdown_percent(payload),
     )
 
 
@@ -238,6 +313,12 @@ def read_skip_robustness_payload(payload: dict[str, Any]) -> SkipRobustnessComma
         if not math.isfinite(scaled_risk) or scaled_risk <= 0:
             raise ValueError("skip_robustness scaledRisk must be a finite number")
     result_id = str(payload.get("resultId") or "").strip()
+    deposit: str | None = None
+    currency: str | None = None
+    if "deposit" in payload and payload.get("deposit") not in (None, ""):
+        deposit = _read_deposit(payload)
+    if "currency" in payload and payload.get("currency") not in (None, ""):
+        currency = _read_currency(payload)
     return SkipRobustnessCommand(
         set_file=set_file,
         symbol=symbol,
@@ -247,6 +328,8 @@ def read_skip_robustness_payload(payload: dict[str, Any]) -> SkipRobustnessComma
         baseline_dd=baseline_dd,
         scaled_risk=scaled_risk,
         result_id=result_id,
+        deposit=deposit,
+        currency=currency,
     )
 
 

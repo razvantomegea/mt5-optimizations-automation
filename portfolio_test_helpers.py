@@ -37,6 +37,7 @@ def deal(
     symbol: str = "EURUSD",
     timeframe: str = "M15",
     equity_after: float | None = None,
+    position_id: str | None = None,
 ) -> StrategyDeal:
     return StrategyDeal(
         time=time,
@@ -48,6 +49,7 @@ def deal(
         symbol=symbol,
         timeframe=timeframe,
         equity_after=equity_after,
+        position_id=position_id,
     )
 
 

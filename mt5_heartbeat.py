@@ -192,8 +192,8 @@ class HeartbeatHost:
             portable=portable,
             result_id=command.result_id,
             unfavorite_on_fail=True,
-            deposit=DEFAULT_DEPOSIT,
-            currency=DEFAULT_CURRENCY,
+            deposit=command.deposit or DEFAULT_DEPOSIT,
+            currency=command.currency or DEFAULT_CURRENCY,
             leverage=DEFAULT_LEVERAGE,
             timeout_seconds=DEFAULT_SKIP_ROBUSTNESS_TIMEOUT_SEC,
         )
