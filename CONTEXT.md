@@ -65,7 +65,7 @@ One discrete pair from the skip grids `SKIP_TRADE_DAY=0||1||1||5||Y` (days 1–5
 ### Skip Robustness Baseline DD
 
 The Survivor's `realticks_equity_dd_pct` from the real-ticks validation backtest (model 4 at that Survivor's **scaled RISK**). Reference DD for the **Skip Robustness Gate**.
-_Avoid_: `ohlc_equity_dd_pct`; optimization-pass Equity DD %; the global 17% validation ceiling (unless coincidentally equal); unscaled RISK DD when scaling was applied
+_Avoid_: `ohlc_equity_dd_pct`; optimization-pass Equity DD %; the global validation ceiling (`target × 1.12`, e.g. 16.8 for target 15) unless coincidentally equal; unscaled RISK DD when scaling was applied
 
 ### Skip Robustness DD Margin
 
@@ -82,8 +82,8 @@ _Avoid_: soft-only with no CSV/dashboard update; average DD; best-of-60 DD; inli
 Two ways to enter skip stress:
 
 1. **Auto after validate:** per job, after Survivors exist, automatically stress the top `min(5, survivor_count)` by `validation_score` (**no backfill**).
-2. **Manual:** any **Skip Robustness Pending** Passed row via **Manual Skip Robustness Trigger** (incl. ranks 6–25 and legacy favorites).
-   _Avoid_: backfilling ranks 6+ on auto fail; auto-stressing all 25 without operator intent for the rest
+2. **Manual:** any **Skip Robustness Pending** Passed row via **Manual Skip Robustness Trigger** (incl. ranks 6–15 and legacy favorites).
+   _Avoid_: backfilling ranks 6+ on auto fail; auto-stressing all 15 without operator intent for the rest
 
 ### Skip Robustness Keep Limit
 
@@ -97,7 +97,7 @@ Outcome recorded on a stressed Survivor in CSV and the optimizations dashboard:
 - **Pass:** keep `passed=true`; set `skip_robustness_pass=true` (new field/column).
 - **Fail:** set `passed=false`, `reject_reason` includes `robustness_failed`; clear `keep` and remove from `best_survivors.csv`; clean up matching `Best/sets` + reports as implemented.
 - **Not run** (Survivors ranked below the top-5 stress set): leave as today — still Passed/`keep`, no robustness fields (or explicit `not_run` if stored).
-  _Avoid_: staying on Passed after robustness fail; deleting untested ranks 6–25; requiring robustness before first Survivor creation
+  _Avoid_: staying on Passed after robustness fail; deleting untested ranks 6–15; requiring robustness before first Survivor creation
 
 ### Skip Robustness Run Context
 
@@ -111,7 +111,7 @@ _Avoid_: leaving orphan favorites on `robustness_failed` rows; requiring `skip_r
 
 ### Skip Robustness Pending
 
-A Passed result (including current favorites) that has **not** been skip-stressed yet. Dashboard shows this as a distinct pending/yellow state: passed, no robustness. Remains favorite-eligible. Ranks 6–25 and legacy rows start here until a stress run completes.
+A Passed result (including current favorites) that has **not** been skip-stressed yet. Dashboard shows this as a distinct pending/yellow state: passed, no robustness. Remains favorite-eligible. Ranks 6–15 and legacy rows start here until a stress run completes.
 _Avoid_: treating pending as failed; hiding pending from Passed
 
 ### Manual Skip Robustness Trigger
@@ -170,7 +170,7 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 - A **Skip Robustness Optimization** is a separate CLI/final step on existing **Survivors** (winning params frozen; only skip params permutated).
 - Per job, **auto** skip stress runs after that job’s validate on the top `min(5, survivor_count)` by `validation_score` (**no backfill**); **Manual Skip Robustness Trigger** covers any remaining **Skip Robustness Pending** row.
 - A **Skip Robustness Optimization** uses that Survivor's **Skip Robustness Run Context** and enumerates 60 **Skip Combinations**.
-- A **Skip Robustness Gate** requires each combination's equity DD ≤ **Skip Robustness Baseline DD** + **Skip Robustness DD Margin** (+1.0 pp); outcome is **Skip Robustness Status** (F1 fail / P1 pass / U1 not-run for ranks 6–25).
+- A **Skip Robustness Gate** requires each combination's equity DD ≤ **Skip Robustness Baseline DD** + **Skip Robustness DD Margin** (+1.0 pp); outcome is **Skip Robustness Status** (F1 fail / P1 pass / U1 not-run for ranks 6–15).
 - **Skip Robustness Pending** rows (yellow) are Passed without stress; **Manual Skip Robustness Trigger** can stress one row via dashboard→worker.
 - **Skip Robustness Favorite Sync** auto-unfavorites on robustness fail; pre-robustness favorites are allowed.
 - A **Base set** lives under one strategy folder and one **Chart Timeframe** folder.
@@ -214,7 +214,7 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 - Candidate selection = top `min(5, N)` Survivors by `validation_score` per job; **no backfill** — resolved (supersedes earlier backfill-C).
 - **Skip Robustness Run Context** = scaled RISK + same from/to dates + real ticks — resolved.
 - Invoke = separate CLI/final step; status written to CSV + optimizations dashboard — resolved.
-- On fail: `passed=false` + `robustness_failed`, clear keep / `best_survivors` + Best artifact cleanup (F1); on pass: `skip_robustness_pass=true` (P1); untested ranks 6–25 unchanged (U1) — resolved.
+- On fail: `passed=false` + `robustness_failed`, clear keep / `best_survivors` + Best artifact cleanup (F1); on pass: `skip_robustness_pass=true` (P1); untested ranks 6–15 unchanged (U1) — resolved.
 - Skip opt tester = complete + real ticks + no forward (Optimization=1, Model=4, ForwardMode=0) — resolved.
 - Favorites on fail = auto-unfavorite + portfolio rebuild (**Skip Robustness Favorite Sync**, option A) — resolved.
 - Untested / legacy Passed = **Skip Robustness Pending** (yellow); favorite-eligible; per-row **Manual Skip Robustness Trigger** — resolved.

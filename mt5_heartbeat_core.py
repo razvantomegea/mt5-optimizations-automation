@@ -27,8 +27,8 @@ DEFAULT_MAX_EQUITY_DRAWDOWN_PERCENT = 15.0
 
 
 def scaled_max_equity_drawdown_percent(target: float) -> float:
-    """Reject ceiling after RISK scaling: JS Math.round(target × 1.12) for positives."""
-    return float(math.floor(target * 1.12 + 0.5))
+    """Reject ceiling after RISK scaling: target × 1.12 (float; e.g. 4 → 4.48)."""
+    return round(target * 1.12, 4)
 
 
 @dataclass(frozen=True)

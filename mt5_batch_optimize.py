@@ -65,10 +65,13 @@ from mt5_tester_runtime import (
     MT5_REPORT_PATH_MAX_LEN,
     REPORT_SUFFIXES,
     build_tester_report_target,
+    clear_report_artifacts,
     ensure_terminal_available,
+    force_kill_terminal64,
     format_set_param_value,
     resolve_report_path,
     start_terminal,
+    wait_for_terminal_exit,
     write_ini,
 )
 from mt5_opt_report import (
@@ -153,7 +156,8 @@ def default_param_file_paths(set_dir: Path) -> list[str]:
 
 DEFAULT_MIN_VALIDATION_CALMAR = 1.0
 DEFAULT_TARGET_EQUITY_DD = 15.0
-DEFAULT_MAX_EQUITY_DD = 17.0
+# Reject ceiling = target × 1.12 (float; keep 12% slack for small targets e.g. 4 → 4.48).
+DEFAULT_MAX_EQUITY_DD = round(DEFAULT_TARGET_EQUITY_DD * 1.12, 4)
 DEFAULT_MIN_SCALED_RISK = 0.1
 DEFAULT_OPTIMIZATION_MODE = "2"
 DEFAULT_OPTIMIZATION_MODEL = "1"
@@ -161,8 +165,8 @@ COMPLETE_OPTIMIZATION_MODE = "1"
 COMPLETE_OPTIMIZATION_MODEL = "4"
 DEFAULT_RISK_ROUND_DECIMALS = 1
 DEFAULT_BACKTEST_TIMEOUT_SEC = 1800
-DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
-DEFAULT_VALIDATE_KEEP_TOP_K = 25
+DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 15
+DEFAULT_VALIDATE_KEEP_TOP_K = 15
 DEFAULT_RUNS_PER_SET_FILE = 1
 
 
@@ -219,8 +223,7 @@ class RiskScalingResult:
     baseline_risk: float | None = None
     baseline_equity_dd_pct: float | None = None
     scaled_risk: float | None = None
-    scaled_ohlc_equity_dd_pct: float | None = None
-    scaled_ohlc_report: Path | None = None
+    baseline_ohlc_report: Path | None = None
     error: str = ""
 
 
@@ -663,7 +666,15 @@ def run_single_backtest(
         data_dir=data_dir,
         work_dir=work_dir,
         stem=stem,
+        prefer_short_path=True,
     )
+    # Drop stale artifacts so we never read a previous run's 0% DD report.
+    clear_report_artifacts(report_base)
+    # Also clear the staging mirror path if short-path redirected away from it.
+    staging_mirror = reports_dir / stem
+    if staging_mirror.resolve() != report_base.resolve():
+        clear_report_artifacts(staging_mirror)
+    started_at = time.time()
     ini_path = configs_dir / f"{stem}.ini"
     cfg = {
         "Expert": expert,
@@ -692,17 +703,28 @@ def run_single_backtest(
     if portable:
         cmd.append("/portable")
     cmd.append(f"/config:{ini_path}")
-    proc = start_terminal(cmd, cwd=install_dir)
+    # Model=4 runs in the terminal UI thread and freezes the window; keep
+    # Optimization=0 (HTML Calmar/deals report) but start minimized.
+    proc = start_terminal(cmd, cwd=install_dir, show_window=model != 4)
+    timed_out = False
     try:
         proc.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
+        timed_out = True
         proc.kill()
-        proc.wait()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        force_kill_terminal64()
+    # ShutdownTerminal=1 should exit; if our managed UI hangs, force-kill that leftover.
+    wait_for_terminal_exit(force_kill=True)
+    if timed_out:
         raise RuntimeError(
             f"MT5 backtest timed out after {timeout_seconds:.0f}s: {symbol} {timeframe} model={model}"
-        ) from None
+        )
     try:
-        return resolve_report_path(report_base)
+        report_path = resolve_report_path(report_base)
     except FileNotFoundError:
         # Optimization jobs already accept nonzero exit when a report exists
         # (done_with_nonzero_exit). Match that for validation backtests.
@@ -712,6 +734,23 @@ def run_single_backtest(
                 f"{symbol} {timeframe} model={model}"
             ) from None
         raise
+    try:
+        # Allow small FS timestamp skew on Windows.
+        if report_path.stat().st_mtime + 2.0 < started_at:
+            raise RuntimeError(
+                f"Stale backtest report not replaced by MT5: {report_path}"
+            )
+    except OSError as exc:
+        raise RuntimeError(f"Could not stat backtest report: {report_path}") from exc
+    # Copy short-path report beside the staging work dir for operator inspection.
+    if report_path.resolve() != (reports_dir / (stem + report_path.suffix)).resolve():
+        try:
+            dest = reports_dir / report_path.name
+            shutil.copy2(report_path, dest)
+        except OSError:
+            pass
+    assert_backtest_report_usable(report_path, expected_deposit=deposit)
+    return report_path
 
 
 def extract_backtest_stat(report_path: Path, label: str) -> float:
@@ -719,35 +758,143 @@ def extract_backtest_stat(report_path: Path, label: str) -> float:
         _title, _headers, records = worksheet_rows(report_path)
         for rec in records:
             for key, val in rec.items():
-                if isinstance(key, str) and label in key:
+                if isinstance(key, str) and label.casefold() in key.casefold():
                     parsed = to_float(val)
                     if parsed is not None:
                         return parsed
     text = read_report_text(report_path)
-    m = re.search(re.escape(label) + r":.*?<b>([-\d.\s,]+)", text, re.S)
+    # Match label case-insensitively; MT5 uses "Total Trades" / "Total trades".
+    m = re.search(
+        re.escape(label) + r":.*?<b>([-\d.\s,]+)",
+        text,
+        re.S | re.I,
+    )
     if m:
         raw = m.group(1).replace(" ", "").replace(",", "")
         return float(raw)
     raise ValueError(f"Could not extract {label} from {report_path}")
 
 
+def assert_backtest_report_usable(report_path: Path, *, expected_deposit: str) -> None:
+    """Reject empty stub reports (Bars=0 / deposit=0) from hung or ignored tester runs."""
+    text = read_report_text(report_path)
+    deposit = None
+    bars = None
+    trades = None
+    for label, dest in (
+        ("Initial deposit", "deposit"),
+        ("Bars", "bars"),
+        ("Total Trades", "trades"),
+    ):
+        m = re.search(
+            re.escape(label) + r":</td>\s*<td[^>]*>\s*(?:<b>)?([^<]+)",
+            text,
+            re.S | re.I,
+        )
+        if not m:
+            continue
+        raw = m.group(1).replace("\xa0", " ").replace(" ", "").replace(",", "")
+        # Strip trailing artifacts like "100000.00"
+        num = re.match(r"[-\d.]+", raw)
+        if not num:
+            continue
+        value = to_float(num.group(0))
+        if dest == "deposit":
+            deposit = value
+        elif dest == "bars":
+            bars = value
+        else:
+            trades = value
+
+    expected = to_float(str(expected_deposit).replace(",", ""), 0.0) or 0.0
+    stub = (
+        (deposit is not None and deposit <= 0)
+        or (bars is not None and bars <= 0)
+        or (trades is not None and trades <= 0 and (deposit is None or deposit <= 0))
+    )
+    if stub:
+        raise RuntimeError(
+            f"Empty MT5 backtest stub report (deposit={deposit}, bars={bars}, "
+            f"trades={trades}; expected deposit≈{expected}): {report_path}. "
+            "Usually localhost:3000 is occupied (often `pnpm dev` / Next.js) so MT5 "
+            "local tester agents fail with 'tester agent authorization error' — stop "
+            "that process, or run python mt5_stop.py, and retry."
+        )
+    if deposit is not None and expected > 0 and abs(deposit - expected) > 0.5:
+        raise RuntimeError(
+            f"Empty MT5 backtest stub report (deposit={deposit}, bars={bars}, "
+            f"trades={trades}; expected deposit≈{expected}): {report_path}. "
+            "Usually localhost:3000 is occupied (often `pnpm dev` / Next.js) so MT5 "
+            "local tester agents fail with 'tester agent authorization error' — stop "
+            "that process, or run python mt5_stop.py, and retry."
+        )
+
+
+def parse_equity_drawdown_relative_pct(raw: Any) -> float | None:
+    """Extract equity DD % from MT5 cells / ``<b>`` payloads.
+
+    Handles percent-first (``12.34% (1 234.56)``) and money-first
+    (``1 234.56 (12.34%)``). Plain numeric cells (optimization XML) parse as-is.
+    """
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).replace("\xa0", " ").strip()
+    # Prefer an explicit percent token so money amounts are never treated as %.
+    pct = re.search(r"(\d+(?:[.,]\d+)?)\s*%", text)
+    if pct:
+        return float(pct.group(1).replace(",", "."))
+    # Plain number (e.g. optimization worksheet "Equity DD %").
+    cleaned = text.replace(" ", "").replace(",", "")
+    return to_float(cleaned)
+
+
 def extract_backtest_equity_dd_pct(report_path: Path) -> float:
+    """Read Equity Drawdown Relative % from an MT5 backtest report.
+
+    Uses the value cell immediately after the Relative label so a same-row
+    Balance Drawdown Relative of 0.00% cannot be picked up by a loose search.
+    """
     if report_path.suffix.lower() == ".xml":
         _title, _headers, records = worksheet_rows(report_path)
         for rec in records:
             for key, val in rec.items():
                 if isinstance(key, str) and "Equity Drawdown Relative" in key:
-                    parsed = to_float(val)
+                    parsed = parse_equity_drawdown_relative_pct(val)
+                    if parsed is not None:
+                        return parsed
+                if isinstance(key, str) and key.strip() in {
+                    "Equity DD %",
+                    "Equity DD%",
+                }:
+                    parsed = parse_equity_drawdown_relative_pct(val)
                     if parsed is not None:
                         return parsed
     text = read_report_text(report_path)
-    m = re.search(r"Equity Drawdown Relative:.*?<b>([\d.]+)%", text, re.S)
-    if m:
-        return float(m.group(1))
-    m = re.search(r"Equity Drawdown Relative.*?(\d+(?:\.\d+)?)", text, re.S)
-    if m:
-        return float(m.group(1))
+    # Tight: label closes its <td>, then the next <td> holds the value.
+    patterns = (
+        r">Equity Drawdown Relative:</td>\s*<td[^>]*>\s*<b>([^<]+)</b>",
+        r">Equity Drawdown Relative:</td>\s*<td[^>]*>\s*([^<]+)</td>",
+        r"Equity Drawdown Relative:</td>\s*<td[^>]*>\s*<b>([^<]+)</b>",
+    )
+    for pattern in patterns:
+        m = re.search(pattern, text, re.S | re.I)
+        if not m:
+            continue
+        parsed = parse_equity_drawdown_relative_pct(m.group(1))
+        if parsed is not None:
+            return parsed
     raise ValueError(f"Could not extract Equity Drawdown Relative from {report_path}")
+
+
+def _extract_backtest_trades(report_path: Path) -> int | None:
+    try:
+        return int(extract_backtest_stat(report_path, "Total Trades"))
+    except (TypeError, ValueError):
+        return None
 
 
 def resolve_validation_risk(
@@ -759,13 +906,21 @@ def resolve_validation_risk(
     risk_scaling: RiskScalingConfig,
     verbose: bool,
 ) -> RiskScalingResult:
+    """OHLC at baseline RISK → set RISK once toward target DD → no scaled OHLC gate.
+
+    Real-ticks validation (caller) is the only DD pass/fail after this step.
+    ``verbose`` is accepted for API compatibility; probe lines always print.
+    """
+    del verbose  # Always log; heartbeat/dashboard never pass --verbose.
     baseline_risk = to_float(set_values.get(RISK_INPUT_NAME), 1.0) or 1.0
+    target_dd = risk_scaling.target_equity_dd_pct
+    ceiling_dd = risk_scaling.max_scaled_equity_dd_pct
 
     try:
         baseline_report = run_single_backtest(**backtest_kwargs, model=1)
         baseline_dd = extract_backtest_equity_dd_pct(baseline_report)
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
-        print(f"    risk scaling baseline probe failed: {exc}")
+        print(f"    risk measure failed: {exc}")
         return RiskScalingResult(
             passed=False,
             reject_reason="risk_scaling_probe_failed",
@@ -773,26 +928,47 @@ def resolve_validation_risk(
             error=str(exc),
         )
 
-    if verbose:
-        print(
-            f"    risk scaling step 1: {RISK_INPUT_NAME}={baseline_risk} "
-            f"equity_DD={baseline_dd:.4f}%"
-        )
+    print(
+        f"    risk measure: {RISK_INPUT_NAME}={baseline_risk} "
+        f"equity_DD={baseline_dd:.4f}% "
+        f"(target {target_dd}%, ceiling {ceiling_dd}%) "
+        f"report={baseline_report.name}"
+    )
 
     if baseline_dd <= 0:
-        if verbose:
-            print(f"    reject: baseline DD {baseline_dd:.4f}% <= 0 (non-linear scaling)")
+        trades = _extract_backtest_trades(baseline_report)
+        if trades == 0:
+            print(
+                f"    reject_reason=risk_scaling_probe_failed | "
+                f"OHLC backtest has 0 trades (DD {baseline_dd:.4f}%); "
+                f"report={baseline_report}"
+            )
+            return RiskScalingResult(
+                passed=False,
+                reject_reason="risk_scaling_probe_failed",
+                baseline_risk=baseline_risk,
+                baseline_equity_dd_pct=baseline_dd,
+                baseline_ohlc_report=baseline_report,
+                error="OHLC backtest produced 0 trades",
+            )
+        print(
+            f"    reject_reason=risk_scaling_zero_dd | "
+            f"baseline DD {baseline_dd:.4f}% <= 0 "
+            f"(trades={trades if trades is not None else 'n/a'}); "
+            f"report={baseline_report}"
+        )
         return RiskScalingResult(
             passed=False,
-            reject_reason="risk_scaling_nonlinear",
+            reject_reason="risk_scaling_zero_dd",
             baseline_risk=baseline_risk,
             baseline_equity_dd_pct=baseline_dd,
+            baseline_ohlc_report=baseline_report,
         )
 
     computed_risk = compute_scaled_risk(
         baseline_risk=baseline_risk,
         baseline_dd_pct=baseline_dd,
-        target_dd_pct=risk_scaling.target_equity_dd_pct,
+        target_dd_pct=target_dd,
         risk_round_decimals=risk_scaling.risk_round_decimals,
     )
     scaled_risk = finalize_scaled_risk(
@@ -800,70 +976,47 @@ def resolve_validation_risk(
         min_scaled_risk=risk_scaling.min_scaled_risk,
     )
     if scaled_risk is None:
+        print(
+            f"    reject_reason=risk_scaling_zero_dd | "
+            f"could not compute scaled {RISK_INPUT_NAME}"
+        )
         return RiskScalingResult(
             passed=False,
-            reject_reason="risk_scaling_nonlinear",
+            reject_reason="risk_scaling_zero_dd",
             baseline_risk=baseline_risk,
             baseline_equity_dd_pct=baseline_dd,
+            baseline_ohlc_report=baseline_report,
         )
+
+    if scaled_risk > baseline_risk:
+        direction = "up"
+    elif scaled_risk < baseline_risk:
+        direction = "down"
+    else:
+        direction = "unchanged"
+    print(
+        f"    risk scale {direction}: {RISK_INPUT_NAME}={baseline_risk} → {scaled_risk} "
+        f"(× {target_dd}/{baseline_dd:.4f})"
+    )
     if (
-        verbose
-        and computed_risk is not None
+        computed_risk is not None
         and computed_risk < risk_scaling.min_scaled_risk
     ):
         print(
             f"    clamp: scaled RISK {computed_risk} < "
             f"{risk_scaling.min_scaled_risk}; using {scaled_risk}"
         )
+
     set_input_value(set_values, RISK_INPUT_NAME, scaled_risk)
     write_set_file(generated_set, set_values)
     shutil.copy2(generated_set, tester_profiles_dir / generated_set.name)
-
-    try:
-        scaled_report = run_single_backtest(**backtest_kwargs, model=1)
-        scaled_dd = extract_backtest_equity_dd_pct(scaled_report)
-    except (RuntimeError, FileNotFoundError, ValueError) as exc:
-        print(f"    risk scaling scaled probe failed: {exc}")
-        return RiskScalingResult(
-            passed=False,
-            reject_reason="risk_scaling_probe_failed",
-            baseline_risk=baseline_risk,
-            baseline_equity_dd_pct=baseline_dd,
-            scaled_risk=scaled_risk,
-            error=str(exc),
-        )
-
-    max_scaled_dd = risk_scaling.max_scaled_equity_dd_pct
-    if verbose:
-        print(
-            f"    risk scaling step 2: {RISK_INPUT_NAME}={scaled_risk} "
-            f"equity_DD={scaled_dd:.4f}% "
-            f"(target {risk_scaling.target_equity_dd_pct}%, max {max_scaled_dd}%)"
-        )
-
-    if not equity_dd_within_ceiling(scaled_dd, max_scaled_dd):
-        if verbose:
-            print(
-                f"    reject: scaled OHLC DD {scaled_dd:.4f}% > "
-                f"{max_scaled_dd}% (non-linear scaling)"
-            )
-        return RiskScalingResult(
-            passed=False,
-            reject_reason="risk_scaling_nonlinear",
-            baseline_risk=baseline_risk,
-            baseline_equity_dd_pct=baseline_dd,
-            scaled_risk=scaled_risk,
-            scaled_ohlc_equity_dd_pct=scaled_dd,
-            scaled_ohlc_report=scaled_report,
-        )
 
     return RiskScalingResult(
         passed=True,
         baseline_risk=baseline_risk,
         baseline_equity_dd_pct=baseline_dd,
         scaled_risk=scaled_risk,
-        scaled_ohlc_equity_dd_pct=scaled_dd,
-        scaled_ohlc_report=scaled_report,
+        baseline_ohlc_report=baseline_report,
     )
 
 
@@ -1038,7 +1191,9 @@ def _validation_passes(
     val_equity: EquityQualityMetrics | None,
     thresholds: ValidationThresholds,
 ) -> bool:
-    if not risk_scaling_pass or not ohlc_dd_pass or not real_ticks_dd_pass:
+    if not risk_scaling_pass or not real_ticks_dd_pass:
+        return False
+    if not ohlc_dd_pass:
         return False
     if val_sharpe is None or val_equity is None:
         return False
@@ -1108,15 +1263,15 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             f"  Validation gates: sharpe>={vt.min_sharpe} "
             f"calmar>={vt.min_calmar} "
             f"equity_dd<={vt.max_equity_dd}% "
-            f"(OHLC + real ticks at scaled RISK)"
+            f"(real ticks at scaled RISK)"
         )
         if cfg.risk_scaling.enabled:
             print(
-                f"  Risk scaling: linear scale RISK toward "
-                f"{cfg.risk_scaling.target_equity_dd_pct}% equity DD "
-                f"(clamp RISK to ≥ {cfg.risk_scaling.min_scaled_risk}; "
-                f"reject if OHLC or real ticks > "
-                f"{cfg.risk_scaling.max_scaled_equity_dd_pct}% — non-linear)"
+                f"  Risk scaling: one OHLC measure at baseline RISK → "
+                f"linear scale toward {cfg.risk_scaling.target_equity_dd_pct}% "
+                f"(clamp RISK to ≥ {cfg.risk_scaling.min_scaled_risk}); "
+                f"one real-ticks backtest; reject if real ticks DD > "
+                f"{cfg.risk_scaling.max_scaled_equity_dd_pct}%"
             )
         else:
             print("  Risk scaling: disabled")
@@ -1193,7 +1348,6 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                 scaled_risk_value = (
                     scaling.scaled_risk if scaling.scaled_risk is not None else baseline_risk
                 )
-                scaled_ohlc_equity_dd = scaling.scaled_ohlc_equity_dd_pct
                 risk_scaling_pass = scaling.passed
 
                 if not scaling.passed:
@@ -1207,7 +1361,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                         baseline_risk=_format_optional_float(baseline_risk),
                         baseline_equity_dd_pct=_format_optional_float(baseline_equity_dd),
                         scaled_risk=_format_optional_float(scaled_risk_value),
-                        scaled_ohlc_equity_dd_pct=_format_optional_float(scaled_ohlc_equity_dd),
+                        scaled_ohlc_equity_dd_pct="",
                         risk_scaling_pass=False,
                         deposit=cfg.deposit,
                         currency=cfg.currency,
@@ -1221,10 +1375,12 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                     write_summary_csv(summary_csv, summary_rows + new_rows)
                     continue
 
-                ohlc_report = scaling.scaled_ohlc_report
-                ohlc_dd = scaling.scaled_ohlc_equity_dd_pct
+                ohlc_report = scaling.baseline_ohlc_report
+                ohlc_dd = scaling.baseline_equity_dd_pct
                 if ohlc_report is None or ohlc_dd is None:
-                    raise RuntimeError("risk scaling passed without scaled OHLC report")
+                    raise RuntimeError("risk scaling passed without baseline OHLC report")
+                # Informational only — OHLC DD is the scale input, not a gate.
+                scaled_ohlc_equity_dd = None
             else:
                 ohlc_report = run_single_backtest(**backtest_kwargs, model=1)
                 ohlc_dd = extract_backtest_equity_dd_pct(ohlc_report)
@@ -1260,43 +1416,38 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         real_dd = extract_backtest_equity_dd_pct(real_report)
         margin_level = extract_margin_level_pct(real_report)
         max_equity_dd = cfg.validation_thresholds.max_equity_dd
-        ohlc_dd_pass = ohlc_dd is not None and equity_dd_within_ceiling(ohlc_dd, max_equity_dd)
         real_ticks_dd_pass = equity_dd_within_ceiling(real_dd, max_equity_dd)
-        dd_pass = ohlc_dd_pass and real_ticks_dd_pass
-        scaling_nonlinear = (
-            cfg.risk_scaling.enabled
-            and (not ohlc_dd_pass or not real_ticks_dd_pass)
-        )
-        if scaling_nonlinear:
-            risk_scaling_pass = False
+        if cfg.risk_scaling.enabled:
+            # Baseline OHLC DD is the scale input only; gate on real ticks.
+            ohlc_dd_pass = True
+            dd_pass = real_ticks_dd_pass
+        else:
+            ohlc_dd_pass = ohlc_dd is not None and equity_dd_within_ceiling(
+                ohlc_dd, max_equity_dd
+            )
+            dd_pass = ohlc_dd_pass and real_ticks_dd_pass
         val_recovery, val_sharpe, val_equity, val_score = extract_validation_metrics(
             real_report,
             allow_zero_metrics=cfg.allow_zero_metrics,
         )
 
         reject_reasons: list[str] = []
-        if scaling_nonlinear:
-            reject_reasons.append("risk_scaling_nonlinear")
-            if cfg.verbose:
-                print(
-                    f"    dropping pass={cand.pass_id}: scaled OHLC DD "
-                    f"{ohlc_dd:.4f}% or real DD {real_dd:.4f}% > "
-                    f"{max_equity_dd}% (non-linear scaling)"
-                )
-        elif not real_ticks_dd_pass:
+        if not real_ticks_dd_pass:
             reject_reasons.append("high_equity_dd")
-            if cfg.verbose:
-                print(
-                    f"    dropping pass={cand.pass_id}: real-ticks equity DD "
-                    f"{real_dd:.4f}% > {max_equity_dd}%"
-                )
+            print(
+                f"    reject_reason=high_equity_dd | real-ticks equity DD "
+                f"{real_dd:.4f}% > {max_equity_dd}%"
+            )
         elif not ohlc_dd_pass:
             reject_reasons.append("dd_fail")
-            if cfg.verbose:
-                print(
-                    f"    dropping pass={cand.pass_id}: OHLC DD "
-                    f"{ohlc_dd:.4f}% > {max_equity_dd}%"
-                )
+            print(
+                f"    reject_reason=dd_fail | OHLC DD "
+                f"{ohlc_dd:.4f}% > {max_equity_dd}%"
+            )
+        else:
+            print(
+                f"    real-ticks DD={real_dd:.4f}% <= ceiling {max_equity_dd}%"
+            )
         if val_sharpe is None or val_equity is None:
             reject_reasons.append("missing_validation_metrics")
             if cfg.verbose:
@@ -1671,13 +1822,13 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--validate-top-n-per-symbol",
         type=int,
         default=DEFAULT_VALIDATE_TOP_N_PER_SYMBOL,
-        help="Top optimization passes per symbol to backtest (default: 25)",
+        help="Top optimization passes per symbol to backtest (default: 15)",
     )
     p.add_argument(
         "--validate-keep-top-k",
         type=int,
         default=DEFAULT_VALIDATE_KEEP_TOP_K,
-        help="Max survivors per job after validation ranking (default: 25)",
+        help="Max survivors per job after validation ranking (default: 15)",
     )
     p.add_argument(
         "--backtest-timeout-seconds",
@@ -1709,7 +1860,10 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--max-equity-dd",
         type=float,
         default=DEFAULT_MAX_EQUITY_DD,
-        help="Max equity DD %% after scaling; OHLC or real ticks above this = non-linear (default: 17)",
+        help=(
+            "Max equity DD %% on real ticks after RISK scaling "
+            f"(default: {DEFAULT_MAX_EQUITY_DD}; dashboard uses target × 1.12)"
+        ),
     )
     p.add_argument(
         "--no-risk-scaling",

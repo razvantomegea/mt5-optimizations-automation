@@ -10,7 +10,7 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 | `start_mt5_heartbeat.bat`         | Launch `mt5_heartbeat.py` from this folder (visible console)     |
 | `install_heartbeat_startup.bat`   | Install Windows Startup shortcut for the heartbeat worker        |
 | `uninstall_heartbeat_startup.bat` | Remove the Windows Startup heartbeat shortcut                    |
-| `mt5_stop.py`                     | Stop `terminal64.exe` and batch optimizer Python processes       |
+| `mt5_stop.py`                     | Stop `terminal64.exe`, leftover `metatester64.exe` agents, and batch Python |
 | `mt5_clean_cache.py`              | Clear MT5 tester cache and local batch artifacts                 |
 | `mt5_sync_favorites.py`           | Copy dashboard favorites from `Best/` to `Favorites/`            |
 | `mt5_batch_optimize.py`           | Batch forward optimization + per-job validation                  |
@@ -74,7 +74,7 @@ From **this folder**, run Python directly:
 | Full batch optimize + validate | `python mt5_batch_optimize.py --expert TrendReversalCluster.ex5 --from-date 2014.07.02 --to-date 2026.07.02`                     |
 | Batch optimize only            | add `--no-validate` to the optimize command                                                                                      |
 | Re-validate `reports/`         | `python mt5_batch_optimize.py --validate-only`                                                                                   |
-| Stop MT5 + batch Python        | `python mt5_stop.py`                                                                                                             |
+| Stop MT5 + tester agents + batch | `python mt5_stop.py`                                                                                                             |
 | Clean cache + artifacts        | `python mt5_clean_cache.py` (local only; dashboard **Clean** also clears optimization DB rows for your user and keeps favorites) |
 | Preview clean                  | `python mt5_clean_cache.py --dry-run`                                                                                            |
 | Cache only                     | `python mt5_clean_cache.py --cache-only`                                                                                         |
@@ -153,12 +153,12 @@ Default mode (**optimize + validate**) runs this sequence for each job (symbol �
 1. Build one Strategy Tester `.ini` in `generated_configs/`.
 2. Copy the `.set` file into `<mt5-data>/MQL5/Profiles/Tester` and launch `terminal64.exe /config:…`.
 3. Wait for optimization to finish (`ShutdownTerminal=1` closes MT5).
-4. Parse the forward optimization XML report, select top passes, and run OHLC + real-ticks backtests.
+4. Parse the forward optimization XML report, select top passes, and run OHLC + real-ticks backtests. Real-tick probes (`Model=4`) start the tester minimized — that mode freezes the MT5 UI thread until ticks finish.
 5. Copy surviving parameter sets and reports into `reports/Best/`.
 
 When linked to the TradeEcho dashboard (heartbeat worker running), `mt5_db_report.py` pushes job progress and validation rows through the TradeEcho API.
 
-MT5 ignores `[Tester]` config when another `terminal64.exe` is already running. The script calls `taskkill` before each job and before validation — do not run MT5 manually in parallel.
+MT5 ignores `[Tester]` config when another `terminal64.exe` is already running. Local tester agents bind **`127.0.0.1:3000`**, the same default as Next.js (`pnpm dev`). A foreign listener there makes single backtests fail with `tester agent authorization error` and empty stub reports — stop that process before optimizing. `python mt5_stop.py` also kills leftover `metatester64.exe` agents so they do not keep 3000–3015. Do not run a second MT5 terminal in parallel.
 
 Set `MT5_DATA_DIR` or pass `--mt5-data` when auto-detection fails (e.g. `%APPDATA%\MetaQuotes\Terminal\<id>`).
 
@@ -207,7 +207,7 @@ python mt5_batch_optimize.py --validate-only `
 
 **No candidates after optimization?** Check forward-selection counts in `--verbose` output (`back_sharpe`, `forward_sharpe`, `forward_result` rejections).
 
-**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, or risk-scaling failures.
+**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, `risk_scaling_zero_dd`, or `risk_scaling_probe_failed`. Empty stub reports (`deposit=0`, `bars=0`) usually mean **localhost:3000 is taken** (often `pnpm dev`) — stop that process and retry.
 
 ### Resume after interruption
 
@@ -300,18 +300,18 @@ Each `.set` file is scheduled **`DEFAULT_RUNS_PER_SET_FILE` times** (default **1
 
 Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 
-| Step                              | Behavior                                                                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Forward 1/3, Custom max criterion | INI defaults: `ForwardMode=2`, `OptimizationCriterion=6`                                                                        |
-| Optimization engine               | Fast genetic (`--optimization 2`) on 1-minute OHLC (`--model 1`); use `--complete-opt` for slow complete + real ticks           |
-| Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                 |
-| Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                               |
-| Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                    |
-| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                   |
-| Risk scaling probe (OHLC)         | Baseline RISK → linear scale toward **15%** equity DD (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**; reject as `risk_scaling_nonlinear` if scaled OHLC or real-ticks DD **&gt; 17%** |
-| Real-ticks backtest (model 4)     | Full-period backtest at scaled or baseline RISK                                                                                 |
-| Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ 17%** on OHLC and real ticks at scaled RISK                                   |
-| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **25**)                                   |
+| Step                              | Behavior                                                                                                                                                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forward 1/3, Custom max criterion | INI defaults: `ForwardMode=2`, `OptimizationCriterion=6`                                                                                                                                                            |
+| Optimization engine               | Fast genetic (`--optimization 2`) on 1-minute OHLC (`--model 1`); use `--complete-opt` for slow complete + real ticks                                                                                               |
+| Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                                                                                                     |
+| Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                                                                                                                   |
+| Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                                                                                                        |
+| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 15) per symbol                                                                                                       |
+| Risk scaling (OHLC measure)       | One OHLC backtest at baseline RISK → set RISK once: `RISK × target / equity_DD` (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**. OHLC DD is the scale input only — not a reject gate.                                                                 |
+| Real-ticks backtest (model 4)     | **One** full-period backtest at the scaled RISK                                                                                                                                                                     |
+| Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ target × 1.12** (default target 15 → ceiling **16.8**) on real ticks only                                                                                          |
+| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **15**)                                                                                                                       |
 
 Recovery, LR Correlation, CAGR, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates. Calmar is both a gate and a factor in `validation_score`.
 
@@ -344,7 +344,7 @@ Override any column with `--col-sharpe`, `--col-recovery`, `--col-custom`, etc.
 
 ### Validation CSVs
 
-**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_calmar`, `validation_pass`, and `reject_reason` (`low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_nonlinear`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_cagr_pct`, `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
+**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_calmar`, `validation_pass`, and `reject_reason` (`low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_zero_dd`, `risk_scaling_probe_failed`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_cagr_pct`, `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
 
 **`best_survivors.csv`** — subset where `keep=true` (header-only when none pass).
 
@@ -408,7 +408,7 @@ You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
 ### Step 3 — Start a run from the dashboard
 
-Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), optimization mode (fast genetic vs slow complete), **currency**, **account balance**, and **max equity drawdown %** (default 15; the worker sets `--target-equity-dd` to that value and `--max-equity-dd` to `round(target × 1.12)`, e.g. 15 → 17), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
+Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), optimization mode (fast genetic vs slow complete), **currency**, **account balance**, and **max equity drawdown %** (default 15; the worker sets `--target-equity-dd` to that value and `--max-equity-dd` to `target × 1.12`, e.g. 15 → 16.8, 4 → 4.48), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
 
 ### Step 4 — Monitor live results
 
@@ -459,8 +459,8 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                                  |
 | `--criterion`                 | `6`                                               | Optimization criterion                                                       |
 | `--forward-mode`              | `2`                                               | Forward testing mode                                                         |
-| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                                            |
-| `--validate-keep-top-k`       | `25`                                              | Top survivors per job after validation ranking                               |
+| `--validate-top-n-per-symbol` | `15`                                              | Top passes per symbol to backtest                                            |
+| `--validate-keep-top-k`       | `15`                                              | Top survivors per job after validation ranking                               |
 | `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                                      |
 | `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                                          |
 | `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation                 |
@@ -468,7 +468,7 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--deposit` / `--currency`    | `100000` / `USD`                                  | Tester account balance and currency (dashboard Start/Resume forwards these)  |
 | `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD % (dashboard **Max equity drawdown %**) |
 | `--min-scaled-risk`           | `0.1`                                             | Clamp floor for scaled RISK (does not reject; avoids RISK 0)                 |
-| `--max-equity-dd`             | `17.0`                                            | Max equity DD % after scaling; dashboard derives `round(target × 1.12)`      |
+| `--max-equity-dd`             | `16.8`                                            | Max equity DD % on real ticks after scaling; dashboard derives `target × 1.12` |
 | `--no-risk-scaling`           | off                                               | Disable RISK scaling OHLC probe                                              |
 | `--verbose`                   | off                                               | Mapping, distributions, rejection diagnostics                                |
 | `--backtest-timeout-seconds`  | `1800`                                            | Per validation backtest timeout                                              |

@@ -103,10 +103,10 @@ def test_build_optimize_argv_resume_and_no_skip_robustness() -> None:
 
 
 def test_scaled_max_equity_drawdown_percent() -> None:
-    assert scaled_max_equity_drawdown_percent(15.0) == 17.0
-    assert scaled_max_equity_drawdown_percent(10.0) == 11.0
-    assert scaled_max_equity_drawdown_percent(20.0) == 22.0
-    assert scaled_max_equity_drawdown_percent(2.5 / 1.12) == 3.0
+    assert scaled_max_equity_drawdown_percent(15.0) == 16.8
+    assert scaled_max_equity_drawdown_percent(10.0) == 11.2
+    assert scaled_max_equity_drawdown_percent(20.0) == 22.4
+    assert scaled_max_equity_drawdown_percent(4.0) == 4.48
 
 
 def test_build_optimize_argv_includes_account_settings() -> None:
@@ -130,7 +130,7 @@ def test_build_optimize_argv_includes_account_settings() -> None:
     assert argv[argv.index("--deposit") + 1] == "25000"
     assert argv[argv.index("--currency") + 1] == "EUR"
     assert argv[argv.index("--target-equity-dd") + 1] == "10.0"
-    assert argv[argv.index("--max-equity-dd") + 1] == "11.0"
+    assert argv[argv.index("--max-equity-dd") + 1] == "11.2"
 
 
 def test_read_start_payload_normalizes_strategies() -> None:

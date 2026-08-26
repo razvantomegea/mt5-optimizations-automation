@@ -41,6 +41,7 @@ from mt5_tester_runtime import (
     format_set_param_value,
     resolve_report_path,
     start_terminal,
+    wait_for_terminal_exit,
     write_ini,
 )
 from mt5_workspace import PACKAGE_ROOT
@@ -420,6 +421,7 @@ def run_skip_stress_optimization(
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
+        wait_for_terminal_exit(timeout_seconds=15.0, force_kill=True)
         raise RuntimeError(
             f"Skip robustness opt timed out after {timeout_seconds:.0f}s"
         ) from None

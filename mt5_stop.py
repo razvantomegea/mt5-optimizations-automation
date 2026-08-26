@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop MT5 terminal64.exe and running MT5 batch Python scripts."""
+"""Stop MT5 terminal64.exe, leftover metatester64.exe agents, and batch Python."""
 
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ def stop_python_batch_scripts() -> None:
     )
 
 
-def stop_terminal64() -> None:
+def _stop_image(image_name: str) -> None:
     result = subprocess.run(
-        ["taskkill", "/IM", "terminal64.exe", "/F"],
+        ["taskkill", "/IM", image_name, "/F"],
         check=False,
         capture_output=True,
         text=True,
@@ -41,14 +41,28 @@ def stop_terminal64() -> None:
         return
     output = f"{result.stdout}\n{result.stderr}".lower()
     if result.returncode == 128 or "not found" in output:
-        print("No terminal64.exe process running")
+        print(f"No {image_name} process running")
         return
     message = (
         (result.stderr or result.stdout or "").strip()
-        or f"taskkill failed (code {result.returncode})"
+        or f"taskkill {image_name} failed (code {result.returncode})"
     )
     print(message, file=sys.stderr)
     raise SystemExit(result.returncode)
+
+
+def stop_terminal64() -> None:
+    # Terminal first so it cannot respawn agents, then leftover testers.
+    # Always attempt both; re-raise the first failure after cleanup.
+    first_error: BaseException | None = None
+    for image_name in ("terminal64.exe", "metatester64.exe"):
+        try:
+            _stop_image(image_name)
+        except SystemExit as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
 
 
 def main() -> int:
