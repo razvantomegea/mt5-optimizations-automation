@@ -42,7 +42,7 @@ def test_non_overlapping_trades_two_strategies() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 2
     assert merged.equity_curve[-1]["balance"] == pytest.approx(101_505.0)
@@ -84,7 +84,7 @@ def test_overlapping_open_periods_equity_differs_from_balance() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     entry_points = [p for p in merged.equity_curve if p["time"] == entry.isoformat()]
     assert entry_points
@@ -128,7 +128,7 @@ def test_multiple_events_same_timestamp_one_strategy() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 2
     assert merged.equity_curve[-1]["balance"] == pytest.approx(100_200.299, rel=1e-4)
@@ -157,8 +157,10 @@ def test_same_timestamp_across_strategies_is_deterministic() -> None:
         series(trades=(loss_a,), result_id="a"),
     ]
 
-    merged_ab = merge_strategy_series(strategies_ab, initial_deposit=100_000)
-    merged_ba = merge_strategy_series(strategies_ba, initial_deposit=100_000)
+    merged_ab = merge_strategy_series(strategies_ab, initial_deposit=100_000,
+        portfolio_id="company:test")
+    merged_ba = merge_strategy_series(strategies_ba, initial_deposit=100_000,
+        portfolio_id="company:test")
 
     assert merged_ab.equity_curve[-1]["balance"] == merged_ba.equity_curve[-1]["balance"]
     assert merged_ab.summary["max_balance_drawdown_relative_pct"] == pytest.approx(
@@ -180,7 +182,7 @@ def test_missing_equity_snapshots_balance_only_metrics() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.summary["equity_metrics_available"] is False
     assert merged.summary["max_equity_drawdown_relative_pct"] is None
@@ -214,7 +216,7 @@ def test_duplicate_closed_trades_same_timestamp() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 2
     assert merged.equity_curve[-1]["balance"] == pytest.approx(100_997.610, rel=1e-4)
@@ -256,7 +258,7 @@ def test_equity_drawdown_differs_from_balance_drawdown() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     balance_dd = merged.summary["max_balance_drawdown_relative_pct"]
     equity_dd = merged.summary["max_equity_drawdown_relative_pct"]
@@ -365,7 +367,7 @@ def test_overlapping_hold_does_not_relever_at_close() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     # 100000 - 10 + 50000*(99990/100000) + 1010*1.0 (entry scale, not close-time)
     assert merged.equity_curve[-1]["balance"] == pytest.approx(150_995.0)
@@ -408,7 +410,7 @@ def test_scaled_trade_profits_sum_to_curve_net() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     metrics = merged.report_metrics["metrics"]
     gross_profit = float(metrics["Gross profit"].replace(",", ""))
@@ -478,7 +480,7 @@ def test_open_strategy_floating_persists_when_other_strategy_deals() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     later = [point for point in merged.equity_curve if point["time"] == other.isoformat()]
     assert later
@@ -549,7 +551,7 @@ def test_overlapping_entries_closed_in_reverse_use_matching_scales() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     after_second_close = [
         point

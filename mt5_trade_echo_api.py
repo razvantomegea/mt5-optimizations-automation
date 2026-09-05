@@ -80,8 +80,33 @@ class TradeEchoOptimizerApi:
     def upsert_portfolio(self, portfolio: dict[str, Any]) -> None:
         self._request("PUT", "/api/optimizer/portfolio", body=portfolio)
 
-    def clear_portfolio(self) -> None:
-        self._request("DELETE", "/api/optimizer/portfolio")
+    def clear_portfolio(
+        self,
+        *,
+        portfolio_id: str | None = None,
+        all_portfolios: bool = False,
+    ) -> None:
+        if all_portfolios:
+            self._request("DELETE", "/api/optimizer/portfolio?all=1")
+            return
+        if not portfolio_id:
+            raise ValueError("clear_portfolio requires portfolio_id or all_portfolios=True")
+        from urllib.parse import quote
+
+        self._request(
+            "DELETE",
+            f"/api/optimizer/portfolio?portfolioId={quote(portfolio_id, safe='')}",
+        )
+
+    def reconcile_portfolios(self, *, keep_portfolio_ids: list[str]) -> None:
+        """Delete legacy + company portfolios not listed in keep_portfolio_ids."""
+        from urllib.parse import urlencode
+
+        if not keep_portfolio_ids:
+            self.clear_portfolio(all_portfolios=True)
+            return
+        query = urlencode([("keep", portfolio_id) for portfolio_id in keep_portfolio_ids])
+        self._request("DELETE", f"/api/optimizer/portfolio?{query}")
 
     def post_run_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         self._request(

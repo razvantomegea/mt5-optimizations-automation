@@ -30,7 +30,50 @@ from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 from mt5_synthetic_report import build_synthetic_report_metrics, max_drawdown_pct, parse_iso_datetime
 
 REPORT_SUFFIXES = (".htm", ".html")
-ALL_FAVORITES_PORTFOLIO_ID = "all-favorites"
+# Legacy single-portfolio id; delete on cutover, never write again.
+LEGACY_ALL_FAVORITES_PORTFOLIO_ID = "all-favorites"
+MIGRATION_DEFAULT_COMPANY = "Tradeslide Trading Tech Limited"
+COMPANY_PORTFOLIO_ID_PREFIX = "company:"
+# company: + lowercase alnum segments separated by single hyphens.
+_COMPANY_PORTFOLIO_ID_RE = re.compile(r"^company:[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def slugify_company_name(company: str) -> str:
+    """Lowercase slug: non-alphanumeric → `-`, collapse dashes, trim edges."""
+    slug = re.sub(r"[^a-z0-9]+", "-", company.strip().lower())
+    return slug.strip("-")
+
+
+def hash_normalized_company_name(company: str) -> str:
+    """Stable FNV-1a 32-bit hex of UTF-8(trim + lower). Shared with TS."""
+    data = company.strip().lower().encode("utf-8")
+    hash_ = 0x811C9DC5
+    for byte in data:
+        hash_ ^= byte
+        hash_ = (hash_ * 0x01000193) & 0xFFFFFFFF
+    return f"{hash_:08x}"
+
+
+def build_company_portfolio_id(company: str) -> str:
+    """Build ``company:<slug>-<hash8>`` (keep in sync with TS)."""
+    slug = slugify_company_name(company)
+    if not slug:
+        raise ValueError("Company name produced an empty portfolio slug")
+    digest = hash_normalized_company_name(company)
+    return f"{COMPANY_PORTFOLIO_ID_PREFIX}{slug}-{digest}"
+
+
+def is_company_portfolio_id(portfolio_id: str) -> bool:
+    return _COMPANY_PORTFOLIO_ID_RE.fullmatch(portfolio_id) is not None
+
+
+def resolve_favorite_company_for_portfolio(company: str | None) -> str:
+    """Display company for rebuild grouping (migration fallback when missing)."""
+    if isinstance(company, str):
+        trimmed = company.strip()
+        if trimmed:
+            return trimmed
+    return MIGRATION_DEFAULT_COMPANY
 
 
 @dataclass(frozen=True)
@@ -727,11 +770,16 @@ def _portfolio_max_equity_drawdown_pct(
 def merge_strategy_series(
     strategies: list[StrategySeries],
     *,
+    portfolio_id: str,
     initial_deposit: float | None = None,
+    company: str | None = None,
 ) -> MergedPortfolio:
     if not strategies:
         raise ValueError("At least one strategy is required")
+    if not portfolio_id.strip():
+        raise ValueError("portfolio_id is required")
 
+    resolved_portfolio_id = portfolio_id.strip()
     if initial_deposit is not None:
         deposit = initial_deposit
     else:
@@ -825,8 +873,8 @@ def merge_strategy_series(
     )
 
     last_point = points[-1] if points else None
-    summary = {
-        "portfolio_id": ALL_FAVORITES_PORTFOLIO_ID,
+    summary: dict[str, Any] = {
+        "portfolio_id": resolved_portfolio_id,
         "deposit": deposit,
         "strategy_count": len(strategies),
         "total_trades": total_closed_trades,
@@ -853,6 +901,8 @@ def merge_strategy_series(
             for strategy in strategies
         ],
     }
+    if company:
+        summary["company"] = company
 
     return MergedPortfolio(
         strategy_ids=strategy_ids,

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Stop MT5 terminal64.exe, leftover metatester64.exe agents, and batch Python."""
+"""Stop MT5 terminal64.exe, leftover metatester64.exe agents, and batch Python.
+
+Also frees localhost:3000–3015 held by orphan tester agents so the next
+Strategy Tester launch (or ``pnpm dev``) can bind them.
+"""
 
 from __future__ import annotations
 
 import subprocess
 import sys
+
+from mt5_tester_runtime import free_local_tester_ports
 
 PYTHON_SCRIPTS = ("mt5_batch_optimize",)
 
@@ -65,9 +71,22 @@ def stop_terminal64() -> None:
         raise first_error
 
 
+def free_tester_ports() -> None:
+    """Reap MT5 listeners still holding localhost:3000–3015 after image kill."""
+    killed = free_local_tester_ports()
+    if killed:
+        print(
+            "Freed localhost tester port(s) held by pid(s): "
+            + ", ".join(str(pid) for pid in killed)
+        )
+    else:
+        print("localhost:3000–3015 clear of MT5 tester agents")
+
+
 def main() -> int:
     stop_python_batch_scripts()
     stop_terminal64()
+    free_tester_ports()
     return 0
 
 

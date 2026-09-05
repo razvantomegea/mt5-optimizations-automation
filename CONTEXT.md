@@ -106,7 +106,7 @@ _Avoid_: unscaled/baseline RISK; a different date window; OHLC model; genetic op
 
 ### Skip Robustness Favorite Sync
 
-If a result is already favorited and later gets **Skip Robustness Status** fail, automatically unfavorite it (DB + Favorites file move/cleanup) and rebuild the all-favorites portfolio when that path applies. Favoriting before robustness has run remains allowed.
+If a result is already favorited and later gets **Skip Robustness Status** fail, automatically unfavorite it (DB + Favorites file move/cleanup) and rebuild that company's favorites portfolio when that path applies. Favoriting before robustness has run remains allowed. New favorites require a broker **Company** on the tester report; portfolio snapshots are per company (`company:<slug>`), not a single merged `all-favorites` row.
 _Avoid_: leaving orphan favorites on `robustness_failed` rows; requiring `skip_robustness_pass=true` before any favorite (rejected alternative)
 
 ### Skip Robustness Pending

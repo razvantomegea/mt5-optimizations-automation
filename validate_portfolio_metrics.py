@@ -57,7 +57,8 @@ def validate_favorites(api: TradeEchoOptimizerApi) -> int:
 
     rows = normalize_favorite_export_rows(api.get_favorites())
     strategies = [load_strategy_series(row) for row in rows]
-    merged = merge_strategy_series(strategies)
+    merged = merge_strategy_series(strategies,
+        portfolio_id="company:test")
 
     for row, series in zip(rows, strategies, strict=True):
         label = f"{series.symbol} {series.timeframe} pass {series.pass_id}"
@@ -78,7 +79,8 @@ def validate_favorites(api: TradeEchoOptimizerApi) -> int:
                 f"{label}: trade_count {len(series.closed_trades)} != report {int(report_trades)}"
             )
 
-        solo = merge_strategy_series([series])
+        solo = merge_strategy_series([series],
+        portfolio_id="company:test")
         report_net = _metric_value(
             row.get("report_metrics"),
             "Total net profit",

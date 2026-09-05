@@ -10,7 +10,6 @@ from unittest.mock import patch
 import pytest
 
 from mt5_portfolio_merge import (
-    ALL_FAVORITES_PORTFOLIO_ID,
     StrategyDeal,
     StrategySeries,
     StrategyTrade,
@@ -381,11 +380,11 @@ def test_merge_applies_entry_commission_before_overlapping_strategy_trade() -> N
     exit_only = merge_strategy_series(
         [strategy_a_exit_only, strategy_b],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
     all_deals = merge_strategy_series(
         [strategy_a, strategy_b],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     overlap_points = [
         point for point in all_deals.equity_curve if point["time"] == overlap_time.isoformat()
@@ -453,12 +452,12 @@ def test_merge_single_strategy_preserves_profit_when_deposit_matches() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 1
     assert merged.equity_curve[-1]["balance"] == 101_000
     assert merged.report_metrics["metrics"]["Total trades"] == "1"
-    assert merged.summary["portfolio_id"] == ALL_FAVORITES_PORTFOLIO_ID
+    assert merged.summary["portfolio_id"] == "company:test"
 
 
 def test_merge_orders_trades_chronologically() -> None:
@@ -488,7 +487,7 @@ def test_merge_orders_trades_chronologically() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.strategy_ids == ["late", "early"]
     assert merged.equity_curve[1]["balance"] == 100_500
@@ -523,7 +522,7 @@ def test_merge_scales_later_trade_to_current_portfolio_equity() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.equity_curve[1]["balance"] == 100_500
     assert merged.equity_curve[2]["balance"] == pytest.approx(101_505.0)
@@ -554,7 +553,7 @@ def test_higher_risk_backtest_increases_profit_and_drawdown() -> None:
             )
         ],
         initial_deposit=deposit,
-    )
+        portfolio_id="company:test")
     high_risk = merge_strategy_series(
         [
             _series(
@@ -574,7 +573,7 @@ def test_higher_risk_backtest_increases_profit_and_drawdown() -> None:
             )
         ],
         initial_deposit=deposit,
-    )
+        portfolio_id="company:test")
 
     low_net_profit = low_risk.equity_curve[-1]["balance"] - deposit
     high_net_profit = high_risk.equity_curve[-1]["balance"] - deposit
@@ -610,18 +609,18 @@ def test_merge_correlated_losses_combine_drawdown_to_thirty_percent() -> None:
     solo_a = merge_strategy_series(
         [_series(trades=(loss_a,), result_id="strategy-a")],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
     solo_b = merge_strategy_series(
         [_series(trades=(loss_b,), result_id="strategy-b")],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
     merged = merge_strategy_series(
         [
             _series(trades=(loss_a,), result_id="strategy-a"),
             _series(trades=(loss_b,), result_id="strategy-b"),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     solo_a_dd = _max_drawdown_from_merged(solo_a)
     solo_b_dd = _max_drawdown_from_merged(solo_b)
@@ -638,7 +637,8 @@ def test_merge_correlated_losses_combine_drawdown_to_thirty_percent() -> None:
 
 def test_merge_raises_when_no_strategies() -> None:
     with pytest.raises(ValueError, match="At least one strategy"):
-        merge_strategy_series([])
+        merge_strategy_series([],
+        portfolio_id="company:test")
 
 
 def test_solo_merge_final_balance_matches_report_net_profit(tmp_path: Path) -> None:
@@ -669,7 +669,8 @@ def test_solo_merge_final_balance_matches_report_net_profit(tmp_path: Path) -> N
         deals=tuple(deals),
         closed_trades=tuple(closed_trades),
     )
-    merged = merge_strategy_series([series], initial_deposit=100_000.0)
+    merged = merge_strategy_series([series], initial_deposit=100_000.0,
+        portfolio_id="company:test")
 
     assert merged.equity_curve[-1]["balance"] == pytest.approx(100_500.0)
     assert merged.total_trades == 1
@@ -870,7 +871,8 @@ def test_load_strategy_series_falls_back_when_report_has_no_deals(
 def test_merge_raises_when_no_deals() -> None:
     empty = series(trades=(), deals=())
     with pytest.raises(ValueError, match="No deals to merge"):
-        merge_strategy_series([empty])
+        merge_strategy_series([empty],
+        portfolio_id="company:test")
 
 
 def test_merge_with_equity_sidecar_tracks_equity_drawdown_separately() -> None:
@@ -908,7 +910,7 @@ def test_merge_with_equity_sidecar_tracks_equity_drawdown_separately() -> None:
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.summary["max_balance_drawdown_relative_pct"] == pytest.approx(10.0, abs=0.1)
     assert merged.summary["max_equity_drawdown_relative_pct"] > merged.summary[
@@ -988,7 +990,7 @@ def test_merge_inout_after_size_change_uses_replacement_scale_for_equity() -> No
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     last = merged.equity_curve[-1]
     assert last["balance"] == pytest.approx(150_000)
@@ -1024,7 +1026,7 @@ def test_merge_summary_aggregates_strategy_trade_counts_and_equity_dd() -> None:
             ),
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 2
     assert merged.summary["max_strategy_equity_dd_pct"] == pytest.approx(15.5)
@@ -1087,7 +1089,7 @@ def test_merge_duplicate_exit_deals_same_timestamp_both_trades_counted() -> None
             )
         ],
         initial_deposit=100_000,
-    )
+        portfolio_id="company:test")
 
     assert merged.total_trades == 2
     assert merged.equity_curve[-1]["balance"] == pytest.approx(100_798.507, rel=1e-4)

@@ -80,6 +80,11 @@ def test_real_tick_terminal_starts_minimized_without_activation(tmp_path: Path) 
     with (
         patch("mt5_tester_runtime._image_running", return_value=False),
         patch("mt5_tester_runtime._listener_images_on_port", return_value=[]),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
+        patch(
+            "mt5_tester_runtime.reap_foreign_listeners_on_local_tester_port",
+            return_value=[],
+        ),
         patch("mt5_tester_runtime.subprocess.Popen", return_value=proc) as popen,
     ):
         try:
@@ -103,6 +108,11 @@ def test_default_terminal_launch_leaves_window_visible(tmp_path: Path) -> None:
     with (
         patch("mt5_tester_runtime._image_running", return_value=False),
         patch("mt5_tester_runtime._listener_images_on_port", return_value=[]),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
+        patch(
+            "mt5_tester_runtime.reap_foreign_listeners_on_local_tester_port",
+            return_value=[],
+        ),
         patch("mt5_tester_runtime.subprocess.Popen", return_value=proc) as popen,
     ):
         try:
@@ -124,10 +134,92 @@ def test_force_kill_terminal64_kills_metatester_agents() -> None:
     with (
         patch("mt5_tester_runtime.sys.platform", "win32"),
         patch("mt5_tester_runtime.subprocess.run", side_effect=fake_run),
+        patch("mt5_tester_runtime._image_running", return_value=False),
+        patch("mt5_tester_runtime.time.sleep"),
     ):
         force_kill_terminal64()
     images = [cmd[2] for cmd in cmds if cmd[:2] == ["taskkill", "/IM"]]
     assert images == ["terminal64.exe", "metatester64.exe"]
+
+
+def test_reap_mt5_listeners_kills_metatester_pid_on_port_3000() -> None:
+    from mt5_tester_runtime import reap_mt5_listeners_on_tester_ports
+
+    killed: list[int] = []
+
+    with (
+        patch("mt5_tester_runtime.sys.platform", "win32"),
+        patch(
+            "mt5_tester_runtime._listener_pids_on_tester_ports",
+            return_value={3000: [20352], 3001: []},
+        ),
+        patch(
+            "mt5_tester_runtime._image_name_for_pid",
+            return_value="metatester64.exe",
+        ),
+        patch(
+            "mt5_tester_runtime._taskkill_pid",
+            side_effect=lambda pid: killed.append(pid),
+        ),
+    ):
+        assert reap_mt5_listeners_on_tester_ports() == [20352]
+    assert killed == [20352]
+
+
+def test_reap_mt5_listeners_leaves_node_on_port_3000() -> None:
+    from mt5_tester_runtime import reap_mt5_listeners_on_tester_ports
+
+    with (
+        patch("mt5_tester_runtime.sys.platform", "win32"),
+        patch(
+            "mt5_tester_runtime._listener_pids_on_tester_ports",
+            return_value={3000: [999]},
+        ),
+        patch("mt5_tester_runtime._image_name_for_pid", return_value="node.exe"),
+        patch("mt5_tester_runtime._taskkill_pid") as kill_pid,
+    ):
+        assert reap_mt5_listeners_on_tester_ports() == []
+    kill_pid.assert_not_called()
+
+
+def test_reap_foreign_listeners_kills_node_leaves_metatester() -> None:
+    from mt5_tester_runtime import reap_foreign_listeners_on_local_tester_port
+
+    killed: list[int] = []
+
+    def image_for_pid(pid: int) -> str:
+        return {999: "node.exe", 20352: "metatester64.exe"}[pid]
+
+    with (
+        patch("mt5_tester_runtime.sys.platform", "win32"),
+        patch(
+            "mt5_tester_runtime._listener_pids_on_tester_ports",
+            return_value={3000: [999, 20352], 3001: [888]},
+        ),
+        patch("mt5_tester_runtime._image_name_for_pid", side_effect=image_for_pid),
+        patch(
+            "mt5_tester_runtime._taskkill_pid",
+            side_effect=lambda pid: killed.append(pid),
+        ),
+    ):
+        assert reap_foreign_listeners_on_local_tester_port() == [999]
+    assert killed == [999]
+
+
+def test_reap_foreign_listeners_skips_unresolved_image() -> None:
+    from mt5_tester_runtime import reap_foreign_listeners_on_local_tester_port
+
+    with (
+        patch("mt5_tester_runtime.sys.platform", "win32"),
+        patch(
+            "mt5_tester_runtime._listener_pids_on_tester_ports",
+            return_value={3000: [4242]},
+        ),
+        patch("mt5_tester_runtime._image_name_for_pid", return_value=None),
+        patch("mt5_tester_runtime._taskkill_pid") as kill_pid,
+    ):
+        assert reap_foreign_listeners_on_local_tester_port() == []
+    kill_pid.assert_not_called()
 
 
 def test_wait_for_terminal_exit_force_kills_leftover_agents() -> None:
@@ -144,6 +236,7 @@ def test_wait_for_terminal_exit_force_kills_leftover_agents() -> None:
     with (
         patch("mt5_tester_runtime._image_running", side_effect=image_running),
         patch("mt5_tester_runtime._taskkill_image", side_effect=taskkill),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
         patch("mt5_tester_runtime.time.sleep"),
     ):
         wait_for_terminal_exit(timeout_seconds=0.0, force_kill=True)
@@ -192,18 +285,50 @@ def test_ensure_terminal_available_kills_orphan_agents() -> None:
         patch("mt5_tester_runtime._image_running", side_effect=image_running),
         patch("mt5_tester_runtime._taskkill_image", side_effect=taskkill),
         patch("mt5_tester_runtime._listener_images_on_port", return_value=[]),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
+        patch(
+            "mt5_tester_runtime.reap_foreign_listeners_on_local_tester_port",
+            return_value=[],
+        ),
         patch("mt5_tester_runtime.time.sleep"),
     ):
         ensure_terminal_available()
     assert killed == ["metatester64.exe"]
 
 
-def test_ensure_terminal_available_raises_when_node_owns_port_3000() -> None:
+def test_ensure_terminal_available_kills_node_on_port_3000() -> None:
     from mt5_tester_runtime import ensure_terminal_available
 
     with (
         patch("mt5_tester_runtime._image_running", return_value=False),
-        patch("mt5_tester_runtime._listener_images_on_port", return_value=["node.exe"]),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
+        patch(
+            "mt5_tester_runtime.reap_foreign_listeners_on_local_tester_port",
+            return_value=[999],
+        ) as reap_foreign,
+        patch("mt5_tester_runtime._listener_images_on_port", return_value=[]),
+        patch("mt5_tester_runtime.time.sleep") as sleep,
+    ):
+        ensure_terminal_available()
+    reap_foreign.assert_called_once_with()
+    sleep.assert_called()
+
+
+def test_ensure_terminal_available_raises_when_foreign_remains_after_reap() -> None:
+    from mt5_tester_runtime import ensure_terminal_available
+
+    with (
+        patch("mt5_tester_runtime._image_running", return_value=False),
+        patch("mt5_tester_runtime.free_local_tester_ports", return_value=[]),
+        patch(
+            "mt5_tester_runtime.reap_foreign_listeners_on_local_tester_port",
+            return_value=[999],
+        ),
+        patch(
+            "mt5_tester_runtime._listener_images_on_port",
+            return_value=["node.exe"],
+        ),
+        patch("mt5_tester_runtime.time.sleep"),
     ):
         try:
             ensure_terminal_available()
@@ -223,6 +348,20 @@ def test_listening_pids_from_netstat_ignores_30000() -> None:
         "TCP    [::]:3000         [::]:0       LISTENING    333\n"
     )
     assert listening_pids_from_netstat(output, 3000) == [111, 333]
+
+
+def test_listening_pids_from_netstat_ports_covers_agent_span() -> None:
+    from mt5_tester_runtime import listening_pids_from_netstat_ports
+
+    output = (
+        "TCP    127.0.0.1:3000    0.0.0.0:0    LISTENING    111\n"
+        "TCP    127.0.0.1:3015    0.0.0.0:0    LISTENING    222\n"
+        "TCP    127.0.0.1:3016    0.0.0.0:0    LISTENING    333\n"
+    )
+    by_port = listening_pids_from_netstat_ports(output, {3000, 3015, 3016})
+    assert by_port[3000] == [111]
+    assert by_port[3015] == [222]
+    assert by_port[3016] == [333]
 
 
 def test_ensure_terminal_available_raises_for_foreign_terminal() -> None:

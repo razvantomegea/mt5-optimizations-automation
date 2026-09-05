@@ -21,6 +21,8 @@ _TERMINAL_IMAGE = "terminal64.exe"
 _TESTER_AGENT_IMAGE = "metatester64.exe"
 # MT5 local agents bind 127.0.0.1:3000 (same default as Next.js `pnpm dev`).
 LOCAL_TESTER_AGENT_PORT = 3000
+# Local agents may occupy a contiguous span (3000–3015).
+LOCAL_TESTER_AGENT_PORT_SPAN = 16
 _ALLOWED_ON_TESTER_PORT = frozenset({"metatester64.exe", "terminal64.exe"})
 # Win32 ShowWindow: minimize without activating (real-tick single tests freeze the UI).
 SW_SHOWMINNOACTIVE = 7
@@ -102,9 +104,33 @@ def _taskkill_image(image_name: str) -> None:
     )
 
 
+def _taskkill_pid(pid: int) -> None:
+    if sys.platform != "win32" or pid <= 0:
+        return
+    subprocess.run(
+        ["taskkill", "/PID", str(pid), "/F"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def local_tester_agent_ports() -> range:
+    start = LOCAL_TESTER_AGENT_PORT
+    return range(start, start + LOCAL_TESTER_AGENT_PORT_SPAN)
+
+
 def listening_pids_from_netstat(output: str, port: int) -> list[int]:
     """Parse PIDs in LISTENING state on ``port`` from ``netstat -ano`` output."""
-    pids: list[int] = []
+    return listening_pids_from_netstat_ports(output, {port}).get(port, [])
+
+
+def listening_pids_from_netstat_ports(
+    output: str,
+    ports: set[int] | frozenset[int],
+) -> dict[int, list[int]]:
+    """Parse LISTENING PIDs for each port in ``ports`` from ``netstat -ano`` output."""
+    by_port: dict[int, list[int]] = {port: [] for port in ports}
     for raw in output.splitlines():
         line = raw.strip()
         if "LISTENING" not in line.upper():
@@ -113,13 +139,16 @@ def listening_pids_from_netstat(output: str, port: int) -> list[int]:
         if len(parts) < 4:
             continue
         local = parts[1] if parts[0].upper() in {"TCP", "UDP"} else parts[0]
-        if _local_addr_port(local) != port:
+        port = _local_addr_port(local)
+        if port is None or port not in by_port:
             continue
         try:
-            pids.append(int(parts[-1]))
+            pid = int(parts[-1])
         except ValueError:
             continue
-    return pids
+        if pid not in by_port[port]:
+            by_port[port].append(pid)
+    return by_port
 
 
 def _local_addr_port(addr: str) -> int | None:
@@ -170,6 +199,81 @@ def _listener_images_on_port(port: int) -> list[str]:
     return names
 
 
+def _listener_pids_on_tester_ports() -> dict[int, list[int]]:
+    if sys.platform != "win32":
+        return {}
+    result = subprocess.run(
+        ["netstat", "-ano", "-p", "TCP"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return listening_pids_from_netstat_ports(
+        result.stdout or "",
+        set(local_tester_agent_ports()),
+    )
+
+
+def reap_mt5_listeners_on_tester_ports() -> list[int]:
+    """Kill MT5 PIDs still LISTENING on localhost:3000–3015.
+
+    Returns the PIDs that were targeted. Foreign listeners (e.g. node) are left
+    alone — preflight uses ``reap_foreign_listeners_on_local_tester_port`` before
+    ``assert_local_tester_port_free``.
+    """
+    if sys.platform != "win32":
+        return []
+    killed: list[int] = []
+    for _port, pids in _listener_pids_on_tester_ports().items():
+        for pid in pids:
+            if pid in killed:
+                continue
+            image = _image_name_for_pid(pid)
+            if image is None or image.lower() not in _ALLOWED_ON_TESTER_PORT:
+                continue
+            _taskkill_pid(pid)
+            killed.append(pid)
+    return killed
+
+
+def reap_foreign_listeners_on_local_tester_port() -> list[int]:
+    """Kill non-MT5 PIDs LISTENING on localhost:3000 so local agents can bind.
+
+    Targets only ``LOCAL_TESTER_AGENT_PORT`` (not 3001-3015). Kills by PID from
+    netstat — never ``taskkill /IM`` — so unrelated ``node.exe`` processes survive.
+    """
+    if sys.platform != "win32":
+        return []
+    killed: list[int] = []
+    for pid in _listener_pids_on_tester_ports().get(LOCAL_TESTER_AGENT_PORT, []):
+        if pid in killed:
+            continue
+        image = _image_name_for_pid(pid)
+        # Unresolved identity: leave the listener alone (fail closed).
+        if image is None:
+            continue
+        if image.lower() in _ALLOWED_ON_TESTER_PORT:
+            continue
+        _taskkill_pid(pid)
+        killed.append(pid)
+    return killed
+
+
+def free_local_tester_ports() -> list[int]:
+    """Wait for MT5 images to exit, then free leftover listeners on 3000–3015."""
+    _wait_until_image_exits(_TERMINAL_IMAGE, timeout_seconds=10.0)
+    _wait_until_image_exits(_TESTER_AGENT_IMAGE, timeout_seconds=10.0)
+    killed = reap_mt5_listeners_on_tester_ports()
+    if killed or _listener_pids_on_tester_ports().get(LOCAL_TESTER_AGENT_PORT):
+        # Second pass after settle: agents sometimes rebind briefly while exiting.
+        time.sleep(_AGENT_PORT_SETTLE_SEC)
+        for pid in reap_mt5_listeners_on_tester_ports():
+            if pid not in killed:
+                killed.append(pid)
+    time.sleep(_AGENT_PORT_SETTLE_SEC)
+    return killed
+
+
 def assert_local_tester_port_free() -> None:
     """Fail if a non-MT5 process owns the local tester agent port (default 3000)."""
     images = _listener_images_on_port(LOCAL_TESTER_AGENT_PORT)
@@ -204,11 +308,13 @@ def force_kill_terminal64() -> None:
     # Terminal first so it cannot respawn agents; then leftover testers.
     _taskkill_image(_TERMINAL_IMAGE)
     _taskkill_image(_TESTER_AGENT_IMAGE)
+    free_local_tester_ports()
 
 
 def _kill_orphan_tester_agents() -> None:
     """Kill metatester64.exe left behind after the terminal already exited."""
     if not _image_running(_TESTER_AGENT_IMAGE):
+        free_local_tester_ports()
         return
     _taskkill_image(_TESTER_AGENT_IMAGE)
     _wait_until_image_exits(_TESTER_AGENT_IMAGE, timeout_seconds=10.0)
@@ -218,7 +324,7 @@ def _kill_orphan_tester_agents() -> None:
             "cannot start a new Strategy Tester session. "
             "Run: python mt5_stop.py"
         )
-    time.sleep(_AGENT_PORT_SETTLE_SEC)
+    free_local_tester_ports()
 
 
 def wait_for_terminal_exit(
@@ -275,8 +381,8 @@ def ensure_terminal_available() -> None:
 
     Never force-kills foreign terminals — raise so the operator closes them
     (or runs ``python mt5_stop.py``). Orphan tester agents are reaped, then
-    localhost:3000 is checked so Next.js / ``pnpm dev`` cannot occupy the
-    MT5 local-agent port.
+    foreign listeners on localhost:3000 (e.g. Next.js / ``pnpm dev``) are
+    killed by PID so MT5 local agents can bind; assert remains as a safety net.
     """
     stop_managed_terminal()
     if _terminal_process_running():
@@ -286,6 +392,8 @@ def ensure_terminal_available() -> None:
             "Run: python mt5_stop.py"
         )
     _kill_orphan_tester_agents()
+    if reap_foreign_listeners_on_local_tester_port():
+        time.sleep(_AGENT_PORT_SETTLE_SEC)
     assert_local_tester_port_free()
 
 

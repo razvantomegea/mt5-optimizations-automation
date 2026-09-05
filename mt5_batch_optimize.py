@@ -2286,11 +2286,19 @@ def _run_batch_jobs(
             job.exit_code = proc.returncode
         except subprocess.TimeoutExpired:
             proc.kill()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                pass
+            force_kill_terminal64()
             job.exit_code = -9
             job.status = "timeout"
             job.error = f"Timed out after {args.timeout_minutes} minutes"
         finally:
             job.duration_sec = round(time.time() - started, 2)
+            # ShutdownTerminal=1 exits terminal64 but often leaves metatester64
+            # holding localhost:3000–3015; reap so the next job / pnpm can bind.
+            wait_for_terminal_exit(force_kill=True)
 
         if job.status != "timeout":
             report_exists = any(

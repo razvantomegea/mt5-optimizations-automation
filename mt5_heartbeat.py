@@ -19,7 +19,7 @@ from mt5_heartbeat_core import (
 )
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR, resolve_terminal
 from mt5_env import load_repo_env
-from mt5_portfolio_favorites import refresh_all_favorites_portfolio
+from mt5_portfolio_favorites import refresh_company_favorites_portfolios
 from mt5_trade_echo_api import TradeEchoOptimizerApi
 from mt5_trade_echo_auth import assert_optimizer_access
 from mt5_workspace import PACKAGE_ROOT
@@ -212,15 +212,17 @@ class HeartbeatHost:
         load_repo_env()
         assert_optimizer_access()
         api = TradeEchoOptimizerApi.from_env()
-        result = refresh_all_favorites_portfolio(api)
-        if result is None:
+        results = refresh_company_favorites_portfolios(api)
+        if not results:
             log("Portfolio cleared (no favorites remain)")
             return
-        log(
-            "Portfolio updated: "
-            f"{result['strategy_count']} strategies, "
-            f"{result['total_trades']} trades"
-        )
+        for result in results:
+            company = result.get("company") or result.get("portfolio_id")
+            log(
+                f"Portfolio updated ({company}): "
+                f"{result['strategy_count']} strategies, "
+                f"{result['total_trades']} trades"
+            )
 
     def run_cycle(self) -> None:
         try:
