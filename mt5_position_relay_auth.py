@@ -11,7 +11,9 @@ from typing import NoReturn
 
 from mt5_env import load_repo_env
 
-DEFAULT_POSITIONRELAY_API_BASE_URL = "https://positionrelay.com"
+# Same origin as shipped MT5 EAs. Cloudflare on positionrelay.com 1010s Python-urllib.
+DEFAULT_POSITIONRELAY_API_BASE_URL = "https://ea-sync-production.up.railway.app"
+OPTIMIZER_USER_AGENT = "PositionRelay-Optimizer/1.0"
 _TRUTHY_ENV = {"1", "true", "yes"}
 
 
@@ -46,6 +48,14 @@ def resolve_position_relay_user_id() -> str:
     return user_id
 
 
+def optimizer_request_headers(user_id: str) -> dict[str, str]:
+    return {
+        "User-Agent": OPTIMIZER_USER_AGENT,
+        "Accept": "application/json",
+        "x-user-id": user_id,
+    }
+
+
 def assert_optimizer_access(*, skip: bool = False) -> None:
     """Call GET /api/optimizer/access with x-user-id (same pattern as MQ5 EAs)."""
     if (
@@ -60,7 +70,7 @@ def assert_optimizer_access(*, skip: bool = False) -> None:
     url = f"{resolve_position_relay_api_base()}/api/optimizer/access"
     request = urllib.request.Request(
         url,
-        headers={"x-user-id": user_id, "Accept": "application/json"},
+        headers=optimizer_request_headers(user_id),
         method="GET",
     )
 

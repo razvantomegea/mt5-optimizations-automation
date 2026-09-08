@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from mt5_position_relay_auth import (
+    OPTIMIZER_USER_AGENT,
     assert_optimizer_access,
+    optimizer_request_headers,
     resolve_position_relay_api_base,
     resolve_position_relay_user_id,
 )
@@ -27,7 +29,7 @@ def clear_auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("env", "expected"),
     [
-        ({}, "https://positionrelay.com"),
+        ({}, "https://ea-sync-production.up.railway.app"),
         ({"POSITIONRELAY_API_BASE_URL": "https://a.example/"}, "https://a.example"),
         ({"TRADEECHO_API_BASE_URL": "https://legacy.example/"}, "https://legacy.example"),
         (
@@ -81,3 +83,11 @@ def test_skip_access_check_bypasses_api(
 ) -> None:
     monkeypatch.setenv(flag, "1")
     assert_optimizer_access()
+
+
+def test_optimizer_request_headers_override_python_urllib() -> None:
+    """Cloudflare 1010 on positionrelay.com bans Python-urllib (2026-09-08)."""
+    headers = optimizer_request_headers("user-1")
+    assert headers["User-Agent"] == OPTIMIZER_USER_AGENT
+    assert not headers["User-Agent"].startswith("Python-urllib")
+    assert headers["x-user-id"] == "user-1"

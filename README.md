@@ -141,7 +141,7 @@ Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategie
 | `MT5_SKIP_DAY_GRID`               | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`)                                |
 | `MT5_SKIP_MONTH_GRID`             | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`)                             |
 | `POSITIONRELAY_USER_ID`           | Yes      | Your PositionRelay User ID (Ultimate plan)                                               |
-| `POSITIONRELAY_API_BASE_URL`      | No       | API host (default: `https://positionrelay.com`)                                          |
+| `POSITIONRELAY_API_BASE_URL`      | No       | API host (default: `https://ea-sync-production.up.railway.app`, same as MT5 EAs) |
 | `POSITIONRELAY_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)                                          |
 
 \*Required when `SetFiles/` is empty and you do not pass `--validate-set-dir`.
@@ -388,7 +388,7 @@ MT5_EXPERT=MyEA.ex5
 
 Use the User ID shown on `/dashboard/setup` → **MT5 Optimizations** tab. Do not leave `POSITIONRELAY_USER_ID` empty; an unset value causes `POSITIONRELAY_USER_ID is not set` at startup.
 
-Optional: `POSITIONRELAY_API_BASE_URL` (defaults to the production PositionRelay API host).
+Optional: `POSITIONRELAY_API_BASE_URL` (defaults to `https://ea-sync-production.up.railway.app`, the same origin as the shipped EAs). Do not point this at `https://positionrelay.com` — Cloudflare Error 1010 blocks Python's default User-Agent.
 
 ### Step 2 — Start the optimizer worker
 

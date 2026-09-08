@@ -11,6 +11,7 @@ from typing import Any
 
 from mt5_env import load_repo_env
 from mt5_position_relay_auth import (
+    optimizer_request_headers,
     resolve_position_relay_api_base,
     resolve_position_relay_user_id,
 )
@@ -38,10 +39,7 @@ class PositionRelayOptimizerApi:
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
         data = None
-        headers = {
-            "x-user-id": self._user_id,
-            "Accept": "application/json",
-        }
+        headers = optimizer_request_headers(self._user_id)
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
