@@ -11,26 +11,34 @@ from typing import NoReturn
 
 from mt5_env import load_repo_env
 
+DEFAULT_POSITIONRELAY_API_BASE_URL = "https://positionrelay.com"
+_TRUTHY_ENV = {"1", "true", "yes"}
+
 
 def _fail(message: str, *, code: int = 1) -> NoReturn:
     print(message, file=sys.stderr)
     raise SystemExit(code)
 
 
+def _env(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def _is_truthy_env(name: str) -> bool:
+    return _env(name) in _TRUTHY_ENV
+
+
 def resolve_position_relay_api_base() -> str:
     base = (
-        os.environ.get("POSITIONRELAY_API_BASE_URL", "").strip()
-        or os.environ.get("TRADEECHO_API_BASE_URL", "").strip()
-        or "https://ea-sync-production.up.railway.app"
+        _env("POSITIONRELAY_API_BASE_URL")
+        or _env("TRADEECHO_API_BASE_URL")  # legacy operator .env
+        or DEFAULT_POSITIONRELAY_API_BASE_URL
     )
     return base.rstrip("/")
 
 
 def resolve_position_relay_user_id() -> str:
-    user_id = (
-        os.environ.get("POSITIONRELAY_USER_ID", "").strip()
-        or os.environ.get("TRADEECHO_USER_ID", "").strip()
-    )
+    user_id = _env("POSITIONRELAY_USER_ID") or _env("TRADEECHO_USER_ID")
     if not user_id:
         _fail(
             "POSITIONRELAY_USER_ID is required. Copy your User ID from the PositionRelay dashboard Setup page."
@@ -38,22 +46,13 @@ def resolve_position_relay_user_id() -> str:
     return user_id
 
 
-# Back-compat aliases for older scripts/imports
-resolve_trade_echo_api_base = resolve_position_relay_api_base
-resolve_trade_echo_user_id = resolve_position_relay_user_id
-
-
 def assert_optimizer_access(*, skip: bool = False) -> None:
     """Call GET /api/optimizer/access with x-user-id (same pattern as MQ5 EAs)."""
-    if skip or os.environ.get("POSITIONRELAY_SKIP_ACCESS_CHECK", "").strip() in {
-        "1",
-        "true",
-        "yes",
-    } or os.environ.get("TRADEECHO_SKIP_ACCESS_CHECK", "").strip() in {
-        "1",
-        "true",
-        "yes",
-    }:
+    if (
+        skip
+        or _is_truthy_env("POSITIONRELAY_SKIP_ACCESS_CHECK")
+        or _is_truthy_env("TRADEECHO_SKIP_ACCESS_CHECK")
+    ):
         return
 
     load_repo_env()

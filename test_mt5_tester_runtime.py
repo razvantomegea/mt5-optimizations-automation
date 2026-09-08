@@ -59,7 +59,7 @@ def test_build_tester_report_target_prefer_short_avoids_dotdot(
     from mt5_tester_runtime import build_tester_report_target
 
     data_dir = tmp_path / "AppData" / "MetaQuotes" / "Terminal" / "ABC"
-    work_dir = tmp_path / "Projects" / "ea-sync" / "validate_staging" / "cand"
+    work_dir = tmp_path / "Projects" / "positionrelay" / "validate_staging" / "cand"
     data_dir.mkdir(parents=True)
     work_dir.mkdir(parents=True)
     report_base, rel = build_tester_report_target(
