@@ -17,8 +17,8 @@ _Avoid_: chart timeframe; calling every `.set` a higher TF when `TrendCurrent` m
 _Avoid_: SwingHA-only like D1/W1; treating M5 as Higher Timeframe-only
 
 **M5 Base-set Matrix**:
-Canonical **Base set** variants for **Chart Timeframe** M5: Classic = `TrendCurrent`, `TrendM5`, `TrendM15`, `TrendH1`, `TrendH4`, `TrendD1`; Multi = `TrendCurrent`, `HTFM15`, `HTFH1`, `HTFH4`, `HTFD1`; SwingHA = `TrendCurrent`.
-_Avoid_: exact M15 copy without M15-as-HTF; TrendCurrent-only as the lasting matrix
+Canonical **Base set** variants for **Chart Timeframe** M5: Classic = `Trend` (permutates `CLASSIC_TREND_TIMEFRAME` from M4→D1); Multi = `TrendCurrent`, `HTFM15`, `HTFH1`, `HTFH4`, `HTFD1`; SwingHA = `TrendCurrent`.
+_Avoid_: exact M15 copy without M15-as-HTF; TrendCurrent-only as the lasting Classic matrix
 
 **M5 Default Selection**:
 **Chart Timeframe** M5 is pre-selected with M15/H1/H4 in dashboard defaults and CLI `--timeframes` default (not opt-in like D1/W1). Allowlist/default order: `M5, M15, H1, H4` (+ `D1, W1` allow-only).
@@ -132,8 +132,10 @@ Nested layout example:
 
 ```
 SetFiles/
-  Classic/M5/TrendCurrent.set
-  Classic/M15/TrendCurrent.set
+  Classic/M5/Trend.set
+  Classic/M15/Trend.set
+  Classic/H1/Trend.set
+  Classic/H4/Trend.set
   Multi/H1/HTFH4.set
   SwingHA/M15/TrendCurrent.set
   SwingHA/D1/TrendCurrent.set

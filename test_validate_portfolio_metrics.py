@@ -305,7 +305,7 @@ def test_validate_favorites_flags_balance_dd_mismatch(
     assert any("solo balance DD" in issue for issue in payload["issues"])
 
 
-@patch("validate_portfolio_metrics.TradeEchoOptimizerApi.from_env")
+@patch("validate_portfolio_metrics.PositionRelayOptimizerApi.from_env")
 @patch("validate_portfolio_metrics.assert_optimizer_access")
 @patch("validate_portfolio_metrics.load_repo_env")
 def test_main_returns_error_when_api_unavailable(
@@ -313,5 +313,5 @@ def test_main_returns_error_when_api_unavailable(
     _access: MagicMock,
     from_env: MagicMock,
 ) -> None:
-    from_env.side_effect = RuntimeError("TradeEcho API unavailable")
+    from_env.side_effect = RuntimeError("PositionRelay API unavailable")
     assert main([]) == 1

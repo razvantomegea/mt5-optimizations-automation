@@ -1,4 +1,4 @@
-"""Push MT5 optimization progress and results via TradeEcho API."""
+"""Push MT5 optimization progress and results via PositionRelay API."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from mt5_portfolio_merge import (
     resolve_deal_equity_series,
     resolve_initial_deposit,
 )
-from mt5_trade_echo_api import TradeEchoOptimizerApi, resolve_optimization_run_id
+from mt5_position_relay_api import PositionRelayOptimizerApi, resolve_optimization_run_id
 from mt5_stable_result_id import stable_result_id
 
 
@@ -98,9 +98,9 @@ class NoopReporter:
 
 
 class OptimizationApiReporter:
-    """Writes run progress and per-candidate results through TradeEcho API."""
+    """Writes run progress and per-candidate results through PositionRelay API."""
 
-    def __init__(self, *, run_id: str, api: TradeEchoOptimizerApi) -> None:
+    def __init__(self, *, run_id: str, api: PositionRelayOptimizerApi) -> None:
         self.run_id = run_id
         self._api = api
         self._job_index = 0
@@ -267,12 +267,12 @@ class OptimizationApiReporter:
 
 def create_reporter() -> OptimizationApiReporter | NoopReporter:
     run_id = resolve_optimization_run_id()
-    user_id = os.environ.get("TRADEECHO_USER_ID", "").strip()
+    user_id = os.environ.get("POSITIONRELAY_USER_ID", "").strip()
     if not run_id or not user_id:
         return NoopReporter()
 
     try:
-        api = TradeEchoOptimizerApi.from_env()
+        api = PositionRelayOptimizerApi.from_env()
         api.mark_worker_running(run_id)
         return OptimizationApiReporter(run_id=run_id, api=api)
     except SystemExit:

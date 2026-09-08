@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poll TradeEcho API and run dashboard optimizer commands on this machine."""
+"""Poll PositionRelay API and run dashboard optimizer commands on this machine."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from mt5_heartbeat_core import (
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR, resolve_terminal
 from mt5_env import load_repo_env
 from mt5_portfolio_favorites import refresh_company_favorites_portfolios
-from mt5_trade_echo_api import TradeEchoOptimizerApi
-from mt5_trade_echo_auth import assert_optimizer_access
+from mt5_position_relay_api import PositionRelayOptimizerApi
+from mt5_position_relay_auth import assert_optimizer_access
 from mt5_workspace import PACKAGE_ROOT
 
 HEARTBEAT_MS = 10_000
@@ -211,7 +211,7 @@ class HeartbeatHost:
     def run_portfolio_build(self) -> None:
         load_repo_env()
         assert_optimizer_access()
-        api = TradeEchoOptimizerApi.from_env()
+        api = PositionRelayOptimizerApi.from_env()
         results = refresh_company_favorites_portfolios(api)
         if not results:
             log("Portfolio cleared (no favorites remain)")
@@ -245,7 +245,7 @@ class HeartbeatHost:
 
 
 def build_host() -> HeartbeatHost:
-    api = TradeEchoOptimizerApi.from_env()
+    api = PositionRelayOptimizerApi.from_env()
     host_holder: dict[str, HeartbeatHost] = {}
 
     def run_optimize(config: OptimizeConfig, run_id: str) -> None:

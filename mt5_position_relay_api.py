@@ -1,4 +1,4 @@
-"""TradeEcho optimizer HTTP API client (x-user-id auth, no direct Postgres)."""
+"""PositionRelay optimizer HTTP API client (x-user-id auth, no direct Postgres)."""
 
 from __future__ import annotations
 
@@ -10,23 +10,23 @@ import urllib.request
 from typing import Any
 
 from mt5_env import load_repo_env
-from mt5_trade_echo_auth import (
-    resolve_trade_echo_api_base,
-    resolve_trade_echo_user_id,
+from mt5_position_relay_auth import (
+    resolve_position_relay_api_base,
+    resolve_position_relay_user_id,
 )
 
 
-class TradeEchoOptimizerApi:
+class PositionRelayOptimizerApi:
     def __init__(self, *, user_id: str, base_url: str) -> None:
         self._user_id = user_id
         self._base_url = base_url.rstrip("/")
 
     @classmethod
-    def from_env(cls) -> "TradeEchoOptimizerApi":
+    def from_env(cls) -> "PositionRelayOptimizerApi":
         load_repo_env()
         return cls(
-            user_id=resolve_trade_echo_user_id(),
-            base_url=resolve_trade_echo_api_base(),
+            user_id=resolve_position_relay_user_id(),
+            base_url=resolve_position_relay_api_base(),
         )
 
     def _request(
@@ -62,12 +62,12 @@ class TradeEchoOptimizerApi:
             except json.JSONDecodeError:
                 pass
             raise RuntimeError(
-                f"TradeEcho API {method} {path} failed (HTTP {error.code}): "
+                f"PositionRelay API {method} {path} failed (HTTP {error.code}): "
                 f"{detail or error.reason}"
             ) from error
         except urllib.error.URLError as error:
             raise RuntimeError(
-                f"Could not reach TradeEcho API ({url}): {error.reason}"
+                f"Could not reach PositionRelay API ({url}): {error.reason}"
             ) from error
 
     def get_favorites(self) -> list[dict[str, Any]]:

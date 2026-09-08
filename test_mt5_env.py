@@ -12,7 +12,7 @@ def mt5_env_module(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     package_root = tmp_path / "package"
     package_root.mkdir()
 
-    monkeypatch.delenv("TRADEECHO_USER_ID", raising=False)
+    monkeypatch.delenv("POSITIONRELAY_USER_ID", raising=False)
 
     import mt5_env
     import mt5_workspace
@@ -30,14 +30,14 @@ def test_load_repo_env_reads_env_local(
     package_root = mt5_env_module.PACKAGE_ROOT
 
     (package_root / ".env.local").write_text(
-        "TRADEECHO_USER_ID=from-env-local\n",
+        "POSITIONRELAY_USER_ID=from-env-local\n",
         encoding="utf-8",
     )
 
-    monkeypatch.delenv("TRADEECHO_USER_ID", raising=False)
+    monkeypatch.delenv("POSITIONRELAY_USER_ID", raising=False)
     mt5_env_module.load_repo_env()
 
-    assert os.environ["TRADEECHO_USER_ID"] == "from-env-local"
+    assert os.environ["POSITIONRELAY_USER_ID"] == "from-env-local"
 
 
 def test_load_repo_env_prefers_env_local_over_env(
@@ -47,18 +47,18 @@ def test_load_repo_env_prefers_env_local_over_env(
     package_root = mt5_env_module.PACKAGE_ROOT
 
     (package_root / ".env.local").write_text(
-        "TRADEECHO_USER_ID=from-env-local\n",
+        "POSITIONRELAY_USER_ID=from-env-local\n",
         encoding="utf-8",
     )
     (package_root / ".env").write_text(
-        "TRADEECHO_USER_ID=from-env\n",
+        "POSITIONRELAY_USER_ID=from-env\n",
         encoding="utf-8",
     )
 
-    monkeypatch.delenv("TRADEECHO_USER_ID", raising=False)
+    monkeypatch.delenv("POSITIONRELAY_USER_ID", raising=False)
     mt5_env_module.load_repo_env()
 
-    assert os.environ["TRADEECHO_USER_ID"] == "from-env-local"
+    assert os.environ["POSITIONRELAY_USER_ID"] == "from-env-local"
 
 
 def test_load_repo_env_does_not_overwrite_existing_env(
@@ -68,11 +68,11 @@ def test_load_repo_env_does_not_overwrite_existing_env(
     package_root = mt5_env_module.PACKAGE_ROOT
 
     (package_root / ".env.local").write_text(
-        "TRADEECHO_USER_ID=from-file\n",
+        "POSITIONRELAY_USER_ID=from-file\n",
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("TRADEECHO_USER_ID", "already-set")
+    monkeypatch.setenv("POSITIONRELAY_USER_ID", "already-set")
     mt5_env_module.load_repo_env()
 
-    assert os.environ["TRADEECHO_USER_ID"] == "already-set"
+    assert os.environ["POSITIONRELAY_USER_ID"] == "already-set"

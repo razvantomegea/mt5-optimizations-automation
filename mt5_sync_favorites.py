@@ -15,7 +15,7 @@ from mt5_optimization_set_paths import (
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR
 from mt5_deal_equity_sidecar import is_matching_realticks_artifact
 from mt5_workspace import PACKAGE_ROOT
-from mt5_trade_echo_api import TradeEchoOptimizerApi
+from mt5_position_relay_api import PositionRelayOptimizerApi
 
 
 def _copy_set_file(set_file: Path, favorites_dir: Path) -> Path:
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        api = TradeEchoOptimizerApi.from_env()
+        api = PositionRelayOptimizerApi.from_env()
         favorites = api.get_favorites()
     except RuntimeError as error:
         print(str(error), file=sys.stderr)

@@ -727,9 +727,9 @@ def run_skip_robustness_job(
     # Incomplete = no outcome write (favorites / passed / run flags untouched).
     if result_id.strip() and not gate.incomplete:
         try:
-            from mt5_trade_echo_api import TradeEchoOptimizerApi
+            from mt5_position_relay_api import PositionRelayOptimizerApi
 
-            api = TradeEchoOptimizerApi.from_env()
+            api = PositionRelayOptimizerApi.from_env()
             api.apply_skip_robustness(
                 result_id=result_id.strip(),
                 passed=gate.passed,

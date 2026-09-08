@@ -1,12 +1,12 @@
 # MT5 optimizations automation
 
-Open-source Python tooling for MetaTrader 5 batch forward optimization, pass validation, and portfolio merging. Used by [TradeEcho](https://trade-echo.com) Ultimate subscribers with the dashboard at `/dashboard/optimizations`.
+Open-source Python tooling for MetaTrader 5 batch forward optimization, pass validation, and portfolio merging. Used by [PositionRelay](https://positionrelay.com) Ultimate subscribers with the dashboard at `/dashboard/optimizations`.
 
 ## What is included
 
 | Script                            | Purpose                                                                                               |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `mt5_heartbeat.py`                | Poll TradeEcho API; run dashboard Start/Stop/Clean/Resume                                             |
+| `mt5_heartbeat.py`                | Poll PositionRelay API; run dashboard Start/Stop/Clean/Resume                                         |
 | `start_mt5_heartbeat.bat`         | Launch `mt5_heartbeat.py` from this folder (visible console)                                          |
 | `install_heartbeat_startup.bat`   | Install Windows Startup shortcut for the heartbeat worker                                             |
 | `uninstall_heartbeat_startup.bat` | Remove the Windows Startup heartbeat shortcut                                                         |
@@ -30,14 +30,14 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
 
 - **`.set` parameter grids** — EA-specific. Place yours in `SetFiles/` (gitignored; see layouts below).
 - MQ5 Expert Advisors — distributed separately on MQL5 Market.
-- Database access — handled by TradeEcho API; scripts never connect to Postgres directly.
+- Database access — handled by PositionRelay API; scripts never connect to Postgres directly.
 
 ## Requirements
 
 - Windows with **MetaTrader 5** (`terminal64.exe`)
 - Python **3.10+** — `pip install -r requirements.txt` (`defusedxml` for report XML parsing)
 - Compiled EA (`.ex5`) in your MT5 `MQL5\Experts` folder
-- Active [**TradeEcho Ultimate**](https://trade-echo.com/pricing) subscription (`TRADEECHO_USER_ID` + API check)
+- Active [**PositionRelay Ultimate**](https://positionrelay.com/pricing) subscription (`POSITIONRELAY_USER_ID` + API check)
 
 ## Setup
 
@@ -50,14 +50,14 @@ Open-source Python tooling for MetaTrader 5 batch forward optimization, pass val
    ```
 
 3. **Copy [`.env.example`](.env.example) to `.env`** and set at minimum:
-   - `TRADEECHO_USER_ID` — your User ID from [TradeEcho](https://trade-echo.com/dashboard) dashboard → Setup
+   - `POSITIONRELAY_USER_ID` — your User ID from [PositionRelay](https://positionrelay.com/dashboard) dashboard → Setup
    - `MT5_EXPERT` — compiled EA filename (e.g. `MyEA.ex5`)
 
 4. **Add `.set` grids** under `SetFiles/` (see layouts below). These are not shipped in the repo.
 
 5. **Install your EA** in MetaTrader 5 (`File → Open Data Folder → MQL5\Experts`).
 
-6. **Optional — TradeEcho dashboard:** set `TRADEECHO_USER_ID` in `.env` and run the optimizer heartbeat worker so Start/Stop in the web UI controls your PC (see [Dashboard integration](#tradeecho-dashboard-integration)).
+6. **Optional — PositionRelay dashboard:** set `POSITIONRELAY_USER_ID` in `.env` and run the optimizer heartbeat worker so Start/Stop in the web UI controls your PC (see [Dashboard integration](#positionrelay-dashboard-integration)).
 
 Scripts load `.env` and `.env.local` from this folder.
 
@@ -93,11 +93,13 @@ Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--
 SetFiles/
   Classic/
     M5/
-      TrendCurrent.set
+      Trend.set
     M15/
-      TrendCurrent.set
+      Trend.set
     H1/
-      TrendH4.set
+      Trend.set
+    H4/
+      Trend.set
   Multi/
     M5/
       HTFM15.set
@@ -114,7 +116,7 @@ SetFiles/
       TrendCurrent.set
 ```
 
-Staged for MT5 as flat names like `Classic_M15_TrendCurrent.set`. Chart TFs beyond the CLI default (M5/M15/H1/H4) are valid when matching folders exist under a strategy (e.g. SwingHA `D1`/`W1`).
+Staged for MT5 as flat names like `Classic_M15_Trend.set`. Chart TFs beyond the CLI default (M5/M15/H1/H4) are valid when matching folders exist under a strategy (e.g. SwingHA `D1`/`W1`).
 
 ### Flat
 
@@ -128,19 +130,19 @@ Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategie
 
 ## Environment variables
 
-| Variable                      | Required | Description                                                                              |
-| ----------------------------- | -------- | ---------------------------------------------------------------------------------------- |
-| `MT5_SET_DIR`                 | No\*     | Folder with `.set` grids (default: `./SetFiles` if populated, else `../../EAs/SetFiles`) |
-| `MT5_EXPERT`                  | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)                                          |
-| `MT5_TERMINAL`                | No       | Path to `terminal64.exe` (else first existing of FTMO / MetaTrader 5 install)            |
-| `MT5_RISK_INPUT`              | No       | EA risk input name (default: `RISK`)                                                     |
-| `MT5_SKIP_DAY_INPUT`          | No       | Skip-day input name (default: `SKIP_TRADE_DAY`)                                          |
-| `MT5_SKIP_MONTH_INPUT`        | No       | Skip-month input name (default: `SKIP_MONTH`)                                            |
-| `MT5_SKIP_DAY_GRID`           | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`)                                |
-| `MT5_SKIP_MONTH_GRID`         | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`)                             |
-| `TRADEECHO_USER_ID`           | Yes      | Your TradeEcho User ID (Ultimate plan)                                                   |
-| `TRADEECHO_API_BASE_URL`      | No       | API host (default: `https://trade-echo.com`)                                             |
-| `TRADEECHO_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)                                          |
+| Variable                          | Required | Description                                                                              |
+| --------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `MT5_SET_DIR`                     | No\*     | Folder with `.set` grids (default: `./SetFiles` if populated, else `../../EAs/SetFiles`) |
+| `MT5_EXPERT`                      | Yes\*\*  | Compiled EA in `MQL5\Experts` (e.g. `MyEA.ex5`)                                          |
+| `MT5_TERMINAL`                    | No       | Path to `terminal64.exe` (else first existing of FTMO / MetaTrader 5 install)            |
+| `MT5_RISK_INPUT`                  | No       | EA risk input name (default: `RISK`)                                                     |
+| `MT5_SKIP_DAY_INPUT`              | No       | Skip-day input name (default: `SKIP_TRADE_DAY`)                                          |
+| `MT5_SKIP_MONTH_INPUT`            | No       | Skip-month input name (default: `SKIP_MONTH`)                                            |
+| `MT5_SKIP_DAY_GRID`               | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`)                                |
+| `MT5_SKIP_MONTH_GRID`             | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`)                             |
+| `POSITIONRELAY_USER_ID`           | Yes      | Your PositionRelay User ID (Ultimate plan)                                               |
+| `POSITIONRELAY_API_BASE_URL`      | No       | API host (default: `https://positionrelay.com`)                                          |
+| `POSITIONRELAY_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)                                          |
 
 \*Required when `SetFiles/` is empty and you do not pass `--validate-set-dir`.
 
@@ -156,7 +158,7 @@ Default mode (**optimize + validate**) runs this sequence for each job (symbol �
 4. Parse the forward optimization XML report, select top passes, and run OHLC + real-ticks backtests. Real-tick probes (`Model=4`) start the tester minimized — that mode freezes the MT5 UI thread until ticks finish.
 5. Copy surviving parameter sets and reports into `reports/Best/`.
 
-When linked to the TradeEcho dashboard (heartbeat worker running), `mt5_db_report.py` pushes job progress and validation rows through the TradeEcho API.
+When linked to the PositionRelay dashboard (heartbeat worker running), `mt5_db_report.py` pushes job progress and validation rows through the PositionRelay API.
 
 MT5 ignores `[Tester]` config when another `terminal64.exe` is already running. Local tester agents bind **`127.0.0.1:3000`**, the same default as Next.js (`pnpm dev`). Preflight kills foreign listeners on **:3000** by PID (e.g. Next.js) before launching the tester; if the port is still occupied afterward, the run fails rather than producing empty stub reports / `tester agent authorization error`. `python mt5_stop.py` (and each finished/timeout optimization job) kills leftover `metatester64.exe` agents and frees **3000–3015** of MT5 listeners only — it does not stop a restarted `pnpm dev`. Do not run a second MT5 terminal in parallel.
 
@@ -201,7 +203,7 @@ Single job:
 ```powershell
 python mt5_batch_optimize.py --validate-only `
   --symbols EURUSD --timeframes M15 `
-  --param-files SetFiles/Classic/M15/TrendCurrent.set `
+  --param-files SetFiles/Classic/M15/Trend.set `
   --from-date 2020.01.01 --to-date 2025.12.31 --verbose
 ```
 
@@ -270,7 +272,7 @@ Merge favorited strategies into one trade-by-trade backtest **per broker company
 python mt5_portfolio_favorites.py
 ```
 
-Requires `TRADEECHO_USER_ID` only. Re-run after favorites change (rebuilds one portfolio snapshot per broker company). After upgrading from the old merged `all-favorites` snapshot, run this once to migrate. The dashboard shows **View portfolio** when a company is selected and that company's snapshot exists.
+Requires `POSITIONRELAY_USER_ID` only. Re-run after favorites change (rebuilds one portfolio snapshot per broker company). After upgrading from the old merged `all-favorites` snapshot, run this once to migrate. The dashboard shows **View portfolio** when a company is selected and that company's snapshot exists.
 
 ### Run unit tests
 
@@ -290,7 +292,7 @@ python -m pytest -q
 
 - **Symbols:** 28 majors/crosses (EURUSD, GBPUSD, … CHFJPY) — override with `--symbols`
 - **Timeframes:** M5, M15, H1, H4 — override with `--timeframes` (e.g. add `D1` `W1` when SwingHA SetFiles exist for those chart TFs)
-- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_TrendH4.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
+- **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_Trend.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
 - **Expert:** `MT5_EXPERT` env or `--expert`
 - **Forward mode:** `2` (built-in forward split; use `--forward-date` when `--forward-mode=4`)
 
@@ -371,26 +373,26 @@ Dashboard: Passed/Favorites rows without stress show yellow **No stress** + **St
 
 Override output folder with `--best-dir`.
 
-## TradeEcho dashboard integration
+## PositionRelay dashboard integration
 
-Ultimate subscribers can control runs from the TradeEcho optimizations dashboard instead of typing CLI commands.
+Ultimate subscribers can control runs from the PositionRelay optimizations dashboard instead of typing CLI commands.
 
 ### Step 1 — Configure `.env`
 
 Copy [`.env.example`](.env.example) to `.env` (or `.env.local`) in **this folder** — the same folder as `README.md`:
 
 ```env
-TRADEECHO_USER_ID=your-uuid-from-dashboard-setup
+POSITIONRELAY_USER_ID=your-uuid-from-dashboard-setup
 MT5_EXPERT=MyEA.ex5
 ```
 
-Use the User ID shown on `/dashboard/setup` → **MT5 Optimizations** tab. Do not leave `TRADEECHO_USER_ID` empty; an unset value causes `TRADEECHO_USER_ID is not set` at startup.
+Use the User ID shown on `/dashboard/setup` → **MT5 Optimizations** tab. Do not leave `POSITIONRELAY_USER_ID` empty; an unset value causes `POSITIONRELAY_USER_ID is not set` at startup.
 
-Optional: `TRADEECHO_API_BASE_URL` (defaults to the production TradeEcho API host).
+Optional: `POSITIONRELAY_API_BASE_URL` (defaults to the production PositionRelay API host).
 
 ### Step 2 — Start the optimizer worker
 
-Keep a terminal open on your Windows PC with the **optimizer heartbeat worker** running. It polls the TradeEcho API every **10 seconds**, reports idle/busy status, and executes **Start**, **Stop**, **Clean**, and **Resume** commands from the web UI.
+Keep a terminal open on your Windows PC with the **optimizer heartbeat worker** running. It polls the PositionRelay API every **10 seconds**, reports idle/busy status, and executes **Start**, **Stop**, **Clean**, and **Resume** commands from the web UI.
 
 Open the terminal in **this folder** (where `.env` lives), then start the worker:
 
@@ -404,7 +406,7 @@ You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
 **Optional — start at Windows login:** run `.\install_heartbeat_startup.bat` once. It creates a Startup shortcut that opens a visible console and runs the worker after you sign in. Remove it with `.\uninstall_heartbeat_startup.bat`.
 
-**`TRADEECHO_USER_ID is not set`?** Confirm the variable is set to your UUID (not blank) in `.env` or `.env.local` in this folder, then retry.
+**`POSITIONRELAY_USER_ID is not set`?** Confirm the variable is set to your UUID (not blank) in `.env` or `.env.local` in this folder, then retry.
 
 ### Step 3 — Start a run from the dashboard
 
@@ -430,7 +432,7 @@ While the worker is running, the dashboard shows batch progress, pass/fail feed,
 
 ### CLI-only (no worker)
 
-You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly from this folder; results stay local under `reports/`. Live dashboard sync during a run still needs `TRADEECHO_USER_ID` in `.env`; remote Start/Stop from the web UI needs the heartbeat worker. Without the worker, run `python mt5_sync_favorites.py` after favoriting to copy files into `reports/Favorites/`.
+You can use all Python scripts without the dashboard worker. Run `mt5_batch_optimize.py` directly from this folder; results stay local under `reports/`. Live dashboard sync during a run still needs `POSITIONRELAY_USER_ID` in `.env`; remote Start/Stop from the web UI needs the heartbeat worker. Without the worker, run `python mt5_sync_favorites.py` after favoriting to copy files into `reports/Favorites/`.
 
 ## Local artifacts (gitignored)
 

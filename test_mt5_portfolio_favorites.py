@@ -303,7 +303,7 @@ def test_refresh_aborts_before_upsert_when_prepare_fails(
     api.clear_portfolio.assert_not_called()
 
 
-@patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
 @patch("mt5_portfolio_favorites.refresh_company_favorites_portfolios")
 @patch("mt5_portfolio_favorites.load_repo_env")
@@ -335,7 +335,7 @@ def test_main_success(
     assert payload["portfolio_id"] == TRADESLIDE_PORTFOLIO_ID
 
 
-@patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
 @patch("mt5_portfolio_favorites.refresh_company_favorites_portfolios")
 @patch("mt5_portfolio_favorites.load_repo_env")
@@ -355,7 +355,7 @@ def test_main_clears_portfolio_when_no_favorites(
     assert "portfolio snapshot" in capsys.readouterr().out.lower()
 
 
-@patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
 @patch("mt5_portfolio_favorites.refresh_company_favorites_portfolios")
 @patch("mt5_portfolio_favorites.load_repo_env")
@@ -375,7 +375,7 @@ def test_main_returns_error_when_refresh_raises(
     assert "Could not resolve initial deposit" in capsys.readouterr().err
 
 
-@patch("mt5_portfolio_favorites.TradeEchoOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
 @patch("mt5_portfolio_favorites.assert_optimizer_access")
 @patch("mt5_portfolio_favorites.load_repo_env")
 def test_main_returns_error_when_api_fails(
@@ -384,9 +384,9 @@ def test_main_returns_error_when_api_fails(
     from_env: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from_env.side_effect = RuntimeError("TradeEcho API unavailable")
+    from_env.side_effect = RuntimeError("PositionRelay API unavailable")
 
     exit_code = main([])
 
     assert exit_code == 1
-    assert "TradeEcho API unavailable" in capsys.readouterr().err
+    assert "PositionRelay API unavailable" in capsys.readouterr().err

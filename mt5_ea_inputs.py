@@ -1,4 +1,4 @@
-"""EA input-name knobs (defaults match TradeEcho TrendReversal family).
+"""EA input-name knobs (defaults match PositionRelay TrendReversal family).
 
 Override via env for other EAs without forking the pipeline:
   MT5_RISK_INPUT, MT5_SKIP_DAY_INPUT, MT5_SKIP_MONTH_INPUT,

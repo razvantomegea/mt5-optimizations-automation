@@ -16,8 +16,8 @@ from mt5_portfolio_merge import (
     normalize_favorite_export_rows,
     resolve_strategy_report_path,
 )
-from mt5_trade_echo_api import TradeEchoOptimizerApi
-from mt5_trade_echo_auth import assert_optimizer_access
+from mt5_position_relay_api import PositionRelayOptimizerApi
+from mt5_position_relay_auth import assert_optimizer_access
 
 
 def _metric_value(report_metrics: dict[str, Any] | None, *labels: str) -> float | None:
@@ -51,7 +51,7 @@ def _report_balance_dd(report_path) -> float | None:
     return to_float(match.group(1).replace(" ", ""))
 
 
-def validate_favorites(api: TradeEchoOptimizerApi) -> int:
+def validate_favorites(api: PositionRelayOptimizerApi) -> int:
     issues: list[str] = []
     warnings: list[str] = []
 
@@ -137,7 +137,7 @@ def main(argv: list[str]) -> int:
     assert_optimizer_access()
     parse_args(argv)
     try:
-        api = TradeEchoOptimizerApi.from_env()
+        api = PositionRelayOptimizerApi.from_env()
         return validate_favorites(api)
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

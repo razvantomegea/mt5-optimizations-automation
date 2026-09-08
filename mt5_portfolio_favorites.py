@@ -1,4 +1,4 @@
-"""Build and persist per-company favorites portfolio snapshots via TradeEcho API."""
+"""Build and persist per-company favorites portfolio snapshots via PositionRelay API."""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from mt5_portfolio_merge import (
     normalize_favorite_export_rows,
     resolve_favorite_company_for_portfolio,
 )
-from mt5_trade_echo_api import TradeEchoOptimizerApi
-from mt5_trade_echo_auth import assert_optimizer_access
+from mt5_position_relay_api import PositionRelayOptimizerApi
+from mt5_position_relay_auth import assert_optimizer_access
 
 
 @dataclass(frozen=True)
@@ -119,7 +119,7 @@ def prepare_company_favorites_portfolio(
 
 
 def build_company_favorites_portfolio(
-    api: TradeEchoOptimizerApi,
+    api: PositionRelayOptimizerApi,
     *,
     company: str,
     rows: list[dict[str, Any]],
@@ -130,7 +130,7 @@ def build_company_favorites_portfolio(
 
 
 def refresh_company_favorites_portfolios(
-    api: TradeEchoOptimizerApi,
+    api: PositionRelayOptimizerApi,
     *,
     company: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -182,7 +182,7 @@ def refresh_company_favorites_portfolios(
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Merge favorite strategies into per-company portfolios and save via TradeEcho API."
+            "Merge favorite strategies into per-company portfolios and save via PositionRelay API."
         ),
     )
     parser.add_argument(
@@ -199,7 +199,7 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
 
     try:
-        api = TradeEchoOptimizerApi.from_env()
+        api = PositionRelayOptimizerApi.from_env()
         results = refresh_company_favorites_portfolios(api, company=args.company)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)

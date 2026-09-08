@@ -484,7 +484,7 @@ def trades_from_equity_curve(
 
 
 def normalize_favorite_export_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Map TradeEcho API camelCase favorite rows to snake_case for merge helpers."""
+    """Map PositionRelay API camelCase favorite rows to snake_case for merge helpers."""
     data = dict(row)
     aliases = {
         "equityCurve": "equity_curve",

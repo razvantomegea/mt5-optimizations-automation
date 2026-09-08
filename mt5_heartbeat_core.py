@@ -1,4 +1,4 @@
-"""TradeEcho optimizer heartbeat — poll API and run dashboard commands."""
+"""PositionRelay optimizer heartbeat — poll API and run dashboard commands."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from mt5_trade_echo_api import TradeEchoOptimizerApi
+from mt5_position_relay_api import PositionRelayOptimizerApi
 
 DATE_PATTERN = re.compile(r"^\d{4}\.\d{2}\.\d{2}$")
 TOKEN_PATTERN = re.compile(r"^[A-Z0-9._]+$")
@@ -544,7 +544,7 @@ class OptimizerHeartbeat:
 
 def create_optimizer_heartbeat(
     *,
-    worker_store: TradeEchoOptimizerApi | WorkerStore,
+    worker_store: PositionRelayOptimizerApi | WorkerStore,
     run_optimize: RunOptimizeFn,
     run_stop: RunStopFn,
     run_clean: RunCleanFn,

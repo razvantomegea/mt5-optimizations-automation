@@ -13,7 +13,7 @@ DEFAULT_SET_FILES_DIR = PACKAGE_ROOT / "SetFiles"
 # packages/mt5-optimizations-automation → ../../EAs/SetFiles
 EAS_SET_FILES_DIR = PACKAGE_ROOT.parent.parent / "EAs" / "SetFiles"
 
-# Prefer env / first existing install; FTMO listed first for TradeEcho operators.
+# Prefer env / first existing install; FTMO listed first for PositionRelay operators.
 _TERMINAL_CANDIDATES = (
     Path(r"C:\Program Files\MetaTrader FTMO\terminal64.exe"),
     Path(r"C:\Program Files\MetaTrader 5\terminal64.exe"),
