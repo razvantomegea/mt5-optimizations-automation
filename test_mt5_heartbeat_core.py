@@ -21,7 +21,7 @@ def _start_payload() -> dict:
         "toDate": "2026.07.02",
         "symbols": ["EURUSD"],
         "timeframes": ["H1"],
-        "strategies": ["Classic", "Multi"],
+        "strategies": ["Classic"],
         "optimizationMode": "2",
     }
 
@@ -138,10 +138,10 @@ def test_read_start_payload_normalizes_strategies() -> None:
         action="start",
         payload={
             **_start_payload(),
-            "strategies": ["classic", "MULTI", "swingha"],
+            "strategies": ["classic", "CLASSIC"],
         },
     )
-    assert config.strategies == ["Classic", "Multi", "SwingHA"]
+    assert config.strategies == ["Classic"]
     assert config.skip_robustness is True
 
 

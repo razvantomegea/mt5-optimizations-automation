@@ -13,7 +13,7 @@ from mt5_position_relay_api import PositionRelayOptimizerApi
 
 DATE_PATTERN = re.compile(r"^\d{4}\.\d{2}\.\d{2}$")
 TOKEN_PATTERN = re.compile(r"^[A-Z0-9._]+$")
-ALLOWED_STRATEGIES = frozenset({"Classic", "Multi", "SwingHA"})
+ALLOWED_STRATEGIES = frozenset({"Classic"})
 _ALLOWED_STRATEGIES_BY_LOWER = {s.lower(): s for s in ALLOWED_STRATEGIES}
 ALLOWED_OPTIMIZATION_MODES = frozenset({"1", "2"})
 ALLOWED_CURRENCIES = frozenset(

@@ -9,27 +9,27 @@ The MT5 period an optimization job runs on; folder name under `SetFiles/<Strateg
 _Avoid_: higher timeframe, period alone when chart vs trend TF matters
 
 **Higher Timeframe**:
-The trend/HTF period baked into a **Base set** variant name (`TrendM15`, `HTFH4`, …), which may differ from the **Chart Timeframe**.
-_Avoid_: chart timeframe; calling every `.set` a higher TF when `TrendCurrent` means chart period
+The trend period baked into a **Base set** variant name (`TrendM15`, `TrendH4`, …) via the resolved `CLASSIC_TREND_TIMEFRAME` enum, which may differ from the **Chart Timeframe**.
+_Avoid_: chart timeframe; `HTF*` / `TrendCurrent` naming (retired Multi/SwingHA convention)
 
 **M5 Chart Support**:
-**Chart Timeframe** `M5` is first-class for Classic, Multi, and SwingHA (same strategy coverage as M15/H1/H4).
-_Avoid_: SwingHA-only like D1/W1; treating M5 as Higher Timeframe-only
+**Chart Timeframe** `M5` is first-class for Classic (same coverage as M15/H1/H4).
+_Avoid_: allowlisted-only like D1/W1; treating M5 as Higher Timeframe-only
 
 **M5 Base-set Matrix**:
-Canonical **Base set** variants for **Chart Timeframe** M5: Classic = `Trend` (permutates `CLASSIC_TREND_TIMEFRAME` from M4→D1); Multi = `TrendCurrent`, `HTFM15`, `HTFH1`, `HTFH4`, `HTFD1`; SwingHA = `TrendCurrent`.
-_Avoid_: exact M15 copy without M15-as-HTF; TrendCurrent-only as the lasting Classic matrix
+Canonical **Base set** for **Chart Timeframe** M5: Classic = `Trend` (permutates `CLASSIC_TREND_TIMEFRAME` from M4→D1).
+_Avoid_: a separate file per Higher Timeframe value; assuming the M5 grid is an exact M15 copy without checking the enum's M4→D1 range
 
 **M5 Default Selection**:
 **Chart Timeframe** M5 is pre-selected with M15/H1/H4 in dashboard defaults and CLI `--timeframes` default (not opt-in like D1/W1). Allowlist/default order: `M5, M15, H1, H4` (+ `D1, W1` allow-only).
 _Avoid_: allowed-only M5; dropping H4 from defaults to make room; appending M5 after H4 in defaults
 
 **M5 Grid Provenance**:
-New M5 **Base sets** clone the matching M15 sibling grids; only **Higher Timeframe** enum fields and comments change (`TrendM5`→5, `TrendM15`/`HTFM15`→15). Brand-new variant files clone the nearest sibling then set the enum.
+New M5 **Base sets** clone the matching M15 sibling grids; only **Higher Timeframe** enum fields and comments change (`TrendM5`→5, `TrendM15`→15). Brand-new variant files clone the nearest sibling then set the enum.
 _Avoid_: inventing new Y/N grids for v1; stub/empty M5 folders
 
 **M5 Higher-Timeframe Labels**:
-Detail UI derives **Higher Timeframe** from report stem: `TrendM5`→`M5`, `HTFM15`→`M15` (plus existing mappings). Longer suffixes win over shorter (`TrendM15` before `TrendM5`).
+Detail UI derives **Higher Timeframe** from report stem: `TrendM5`→`M5`, `TrendM15`→`M15` (plus H1/H4/D1 mappings). Longer suffixes win over shorter (`TrendM15` before `TrendM5`).
 _Avoid_: blank Higher Timeframe for new M5 variants; labeling `TrendM5` as M15
 
 **M5 Delivery Scope**:
@@ -136,10 +136,8 @@ SetFiles/
   Classic/M15/Trend.set
   Classic/H1/Trend.set
   Classic/H4/Trend.set
-  Multi/H1/HTFH4.set
-  SwingHA/M15/TrendCurrent.set
-  SwingHA/D1/TrendCurrent.set
-  SwingHA/W1/TrendCurrent.set
+  Classic/D1/Trend.set
+  Classic/W1/Trend.set
 ```
 
 ### Permutated parameter
@@ -176,9 +174,9 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 - **Skip Robustness Pending** rows (yellow) are Passed without stress; **Manual Skip Robustness Trigger** can stress one row via dashboard→worker.
 - **Skip Robustness Favorite Sync** auto-unfavorites on robustness fail; pre-robustness favorites are allowed.
 - A **Base set** lives under one strategy folder and one **Chart Timeframe** folder.
-- A **Base set** variant may encode a **Higher Timeframe** (`Trend*`, `HTF*`) or use chart period (`TrendCurrent`).
-- **M5 Chart Support** applies to Classic, Multi, and SwingHA — not SwingHA-only like D1/W1.
-- **M5 Base-set Matrix** defines which Higher Timeframe variants exist under each strategy’s M5 folder.
+- A **Base set** variant encodes a **Higher Timeframe** via the resolved `CLASSIC_TREND_TIMEFRAME` enum (`TrendM15`, `TrendH4`, …), not via separate `HTF*`/`TrendCurrent` files.
+- **M5 Chart Support** applies to Classic — D1/W1 stay allowlisted opt-in **Chart Timeframes**, not defaults.
+- **M5 Base-set Matrix** defines the Higher Timeframe range permutated by Classic's M5 `Trend` base set.
 - **M5 Default Selection** puts M5 in the same default job matrix as M15/H1/H4.
 - **M5 Grid Provenance** means M5 grids start as copies of M15 grids with TF enums adjusted.
 - **M5 Higher-Timeframe Labels** keep detail-page Higher Timeframe display in sync with new stem suffixes.
@@ -186,8 +184,8 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 
 ## Example dialogue
 
-> **Dev:** "Is M5 like D1/W1 — SwingHA-only and opt-in?"
-> **Domain expert:** "No. **M5 Chart Support** is Classic/Multi/SwingHA and in **M5 Default Selection** with M15/H1/H4. D1/W1 stay SwingHA opt-in."
+> **Dev:** "Is M5 like D1/W1 — opt-in only?"
+> **Domain expert:** "No. **M5 Chart Support** is first-class for Classic and in **M5 Default Selection** with M15/H1/H4. D1/W1 stay allowlisted opt-in."
 >
 > **Dev:** "Do favorites or portfolio need an M5 code path?"
 > **Domain expert:** "No. Under **M5 Delivery Scope**, timeframe is opaque identity. Once M5 Survivors exist, favorite + portfolio already work."
@@ -206,7 +204,7 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 
 ## Flagged ambiguities
 
-- M5 means **Chart Timeframe** M5 (job period). Same-TF Classic variant is `TrendM5`; Multi does not use same-TF `HTFM5` — M15-as-HTF is `TrendM15` / `HTFM15`.
+- M5 means **Chart Timeframe** M5 (job period). Same-Chart-Timeframe Classic Higher Timeframe label is `TrendM5`; a longer Higher Timeframe than the chart uses `TrendM15` / `TrendH1` / `TrendH4` / `TrendD1`.
 - Docs in same change: root README + package README + validation string + constants comment (not code-only).
 - Grill closed 2026-08-02: shared understanding complete; ready for implementation plan / execute on request.
 - "Monte Carlo" in the request meant **Skip Robustness Optimization** / **Skip Robustness Gate** — not a stochastic simulation.

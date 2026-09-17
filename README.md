@@ -85,7 +85,7 @@ From **this folder**, run Python directly:
 | Skip robustness (one Survivor)   | `python mt5_skip_robustness.py --set-file … --symbol … --timeframe … --from-date … --to-date … --baseline-dd … --expert …`       |
 | Unit tests                       | `python -m pytest -q`                                                                                                            |
 
-Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`). If package `SetFiles/` is empty, grids fall back to `../../EAs/SetFiles` (Classic / Multi / SwingHA).
+Scripts auto-detect one of two layouts under `SetFiles/` (or `MT5_SET_DIR` / `--validate-set-dir`). If package `SetFiles/` is empty, grids fall back to `../../EAs/SetFiles` (Classic only).
 
 ### Nested (strategy + chart timeframe)
 
@@ -100,23 +100,13 @@ SetFiles/
       Trend.set
     H4/
       Trend.set
-  Multi/
-    M5/
-      HTFM15.set
-    H1/
-      HTFH4.set
-  SwingHA/
-    M5/
-      TrendCurrent.set
-    M15/
-      TrendCurrent.set
     D1/
-      TrendCurrent.set
+      Trend.set
     W1/
-      TrendCurrent.set
+      Trend.set
 ```
 
-Staged for MT5 as flat names like `Classic_M15_Trend.set`. Chart TFs beyond the CLI default (M5/M15/H1/H4) are valid when matching folders exist under a strategy (e.g. SwingHA `D1`/`W1`).
+Staged for MT5 as flat names like `Classic_M15_Trend.set`. Chart TFs beyond the CLI default (M5/M15/H1/H4) are valid when matching folders exist under `Classic` (e.g. `D1`/`W1`, allowlisted but not pre-selected).
 
 ### Flat
 
@@ -126,7 +116,7 @@ SetFiles/
   GBPUSD_H1_grid.set
 ```
 
-Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategies Default` (flat).
+Restrict runs with `--strategies Classic` (nested) or `--strategies Default` (flat).
 
 ## Environment variables
 
@@ -141,7 +131,7 @@ Restrict runs with `--strategies Classic Multi SwingHA` (nested) or `--strategie
 | `MT5_SKIP_DAY_GRID`               | No       | Skip-day optimize grid (default: `0\|\|1\|\|1\|\|5\|\|Y`)                                |
 | `MT5_SKIP_MONTH_GRID`             | No       | Skip-month optimize grid (default: `0\|\|1\|\|1\|\|12\|\|Y`)                             |
 | `POSITIONRELAY_USER_ID`           | Yes      | Your PositionRelay User ID (Ultimate plan)                                               |
-| `POSITIONRELAY_API_BASE_URL`      | No       | API host (default: `https://ea-sync-production.up.railway.app`, same as MT5 EAs) |
+| `POSITIONRELAY_API_BASE_URL`      | No       | API host (default: `https://ea-sync-production.up.railway.app`, same as MT5 EAs)         |
 | `POSITIONRELAY_SKIP_ACCESS_CHECK` | No       | `1` to skip subscription check (local dev only)                                          |
 
 \*Required when `SetFiles/` is empty and you do not pass `--validate-set-dir`.
@@ -291,7 +281,7 @@ python -m pytest -q
 ## Default job matrix
 
 - **Symbols:** 28 majors/crosses (EURUSD, GBPUSD, … CHFJPY) — override with `--symbols`
-- **Timeframes:** M5, M15, H1, H4 — override with `--timeframes` (e.g. add `D1` `W1` when SwingHA SetFiles exist for those chart TFs)
+- **Timeframes:** M5, M15, H1, H4 — override with `--timeframes` (e.g. add `D1` `W1`, allowlisted but not default, when Classic SetFiles exist for those chart TFs)
 - **Param files:** all `.set` files under `SetFiles/` (auto-discovered). Staged as flat names like `Classic_M15_Trend.set`. Job count = param files × symbols × `DEFAULT_RUNS_PER_SET_FILE` (default **1** per file).
 - **Expert:** `MT5_EXPERT` env or `--expert`
 - **Forward mode:** `2` (built-in forward split; use `--forward-date` when `--forward-mode=4`)
@@ -309,7 +299,7 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                                                                                                    |
 | Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                                                                                                                  |
 | Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                                                                                                       |
-| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 15) per symbol                                                                                                      |
+| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                                                                                                      |
 | Risk scaling (OHLC measure)       | One OHLC backtest at baseline RISK → set RISK once: `RISK × target / equity_DD` (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**. OHLC DD is the scale input only — not a reject gate. |
 | Real-ticks backtest (model 4)     | **One** full-period backtest at the scaled RISK                                                                                                                                                                    |
 | Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ target × 1.12** (default target 15 → ceiling **16.8**) on real ticks only                                                                                        |
@@ -410,7 +400,7 @@ You should see `[mt5-heartbeat] Starting optimizer heartbeat (10s poll)`.
 
 ### Step 3 — Start a run from the dashboard
 
-Open `/dashboard/optimizations`, choose date range, symbols, timeframes, strategies (Classic / Multi / SwingHA), optimization mode (fast genetic vs slow complete), **currency**, **account balance**, and **max equity drawdown %** (default 15; the worker sets `--target-equity-dd` to that value and `--max-equity-dd` to `target × 1.12`, e.g. 15 → 16.8, 4 → 4.48), then click **Start**. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
+Open `/dashboard/optimizations`, choose date range, symbols, timeframes, optimization mode (fast genetic vs slow complete), **currency**, **account balance**, and **max equity drawdown %** (default 15; the worker sets `--target-equity-dd` to that value and `--max-equity-dd` to `target × 1.12`, e.g. 15 → 16.8, 4 → 4.48), then click **Start**. The dashboard uses the Classic strategy automatically. The worker launches `mt5_batch_optimize.py` and syncs results to your dashboard automatically.
 
 ### Step 4 — Monitor live results
 
@@ -454,14 +444,14 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--work-dir`                  | `.`                                               | Root for generated files and logs                                              |
 | `--symbols` / `--timeframes`  | 28 symbols / M5 M15 H1 H4                         | Job matrix; also filters validate-only                                         |
 | `--param-files`               | all under `SetFiles/`                             | Optimization parameter files (auto-discovered)                                 |
-| `--strategies`                | all discovered                                    | Restrict to `Classic`, `Multi`, and/or `SwingHA`                               |
+| `--strategies`                | all discovered                                    | Restrict to `Classic`                                                          |
 | `--from-date` / `--to-date`   | required (except validate-only)                   | `YYYY.MM.DD`                                                                   |
 | `--optimization`              | `2`                                               | Fast genetic; use `--complete-opt` for complete + real ticks                   |
 | `--model`                     | `1`                                               | 1-minute OHLC by default                                                       |
 | `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                                    |
 | `--criterion`                 | `6`                                               | Optimization criterion                                                         |
 | `--forward-mode`              | `2`                                               | Forward testing mode                                                           |
-| `--validate-top-n-per-symbol` | `15`                                              | Top passes per symbol to backtest                                              |
+| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                                              |
 | `--validate-keep-top-k`       | `15`                                              | Top survivors per job after validation ranking                                 |
 | `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                                        |
 | `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                                            |

@@ -165,7 +165,7 @@ COMPLETE_OPTIMIZATION_MODE = "1"
 COMPLETE_OPTIMIZATION_MODEL = "4"
 DEFAULT_RISK_ROUND_DECIMALS = 1
 DEFAULT_BACKTEST_TIMEOUT_SEC = 1800
-DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 15
+DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
 DEFAULT_VALIDATE_KEEP_TOP_K = 15
 DEFAULT_RUNS_PER_SET_FILE = 1
 
@@ -332,12 +332,8 @@ def build_jobs(
 
 def infer_profile_name(path: Path, title: str) -> str:
     name = path.stem.lower() + " " + title.lower()
-    if "swingha" in name:
-        return "SwingHA"
     if "classic" in name:
         return "Classic"
-    if "multi" in name or "mtf" in name:
-        return "Multi"
     return "Unknown"
 
 
@@ -1822,7 +1818,7 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--validate-top-n-per-symbol",
         type=int,
         default=DEFAULT_VALIDATE_TOP_N_PER_SYMBOL,
-        help="Top optimization passes per symbol to backtest (default: 15)",
+        help="Top optimization passes per symbol to backtest (default: 25)",
     )
     p.add_argument(
         "--validate-keep-top-k",
@@ -1937,7 +1933,7 @@ def main() -> int:
         "GBPCAD", "GBPAUD", "GBPNZD", "GBPJPY", "GBPCHF",
         "AUDCAD", "NZDCAD", "CADJPY", "CADCHF",
         "AUDNZD", "AUDJPY", "AUDCHF", "NZDJPY", "NZDCHF", "CHFJPY",
-        "BTCUSD", "XAUUSD", "US500", "US500.cash", "SP500",
+        "BTCUSD", "XAUUSD", "XAGUSD", "US500", "US500.cash", "SP500",
     ]
     default_timeframes = ["M5", "M15", "H1", "H4"]
     p.add_argument("--symbols", nargs="+", default=default_symbols)
