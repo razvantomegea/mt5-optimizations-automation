@@ -82,8 +82,8 @@ _Avoid_: soft-only with no CSV/dashboard update; average DD; best-of-60 DD; inli
 Two ways to enter skip stress:
 
 1. **Auto after validate:** per job, after Survivors exist, automatically stress the top `min(5, survivor_count)` by `validation_score` (**no backfill**).
-2. **Manual:** any **Skip Robustness Pending** Passed row via **Manual Skip Robustness Trigger** (incl. ranks 6–15 and legacy favorites).
-   _Avoid_: backfilling ranks 6+ on auto fail; auto-stressing all 15 without operator intent for the rest
+2. **Manual:** any **Skip Robustness Pending** Passed row via **Manual Skip Robustness Trigger** (incl. ranks beyond the auto top-5 and legacy favorites).
+   _Avoid_: backfilling ranks 6+ on auto fail; auto-stressing all survivors without operator intent for the rest
 
 ### Skip Robustness Keep Limit
 
@@ -97,7 +97,7 @@ Outcome recorded on a stressed Survivor in CSV and the optimizations dashboard:
 - **Pass:** keep `passed=true`; set `skip_robustness_pass=true` (new field/column).
 - **Fail:** set `passed=false`, `reject_reason` includes `robustness_failed`; clear `keep` and remove from `best_survivors.csv`; clean up matching `Best/sets` + reports as implemented.
 - **Not run** (Survivors ranked below the top-5 stress set): leave as today — still Passed/`keep`, no robustness fields (or explicit `not_run` if stored).
-  _Avoid_: staying on Passed after robustness fail; deleting untested ranks 6–15; requiring robustness before first Survivor creation
+  _Avoid_: staying on Passed after robustness fail; deleting untested ranks beyond the auto top-5; requiring robustness before first Survivor creation
 
 ### Skip Robustness Run Context
 
@@ -111,7 +111,7 @@ _Avoid_: leaving orphan favorites on `robustness_failed` rows; requiring `skip_r
 
 ### Skip Robustness Pending
 
-A Passed result (including current favorites) that has **not** been skip-stressed yet. Dashboard shows this as a distinct pending/yellow state: passed, no robustness. Remains favorite-eligible. Ranks 6–15 and legacy rows start here until a stress run completes.
+A Passed result (including current favorites) that has **not** been skip-stressed yet. Dashboard shows this as a distinct pending/yellow state: passed, no robustness. Remains favorite-eligible. Ranks beyond the auto top-5 and legacy rows start here until a stress run completes.
 _Avoid_: treating pending as failed; hiding pending from Passed
 
 ### Manual Skip Robustness Trigger
@@ -214,7 +214,7 @@ Per Permutated parameter, the count (and distinct-symbol count and percentage) o
 - Candidate selection = top `min(5, N)` Survivors by `validation_score` per job; **no backfill** — resolved (supersedes earlier backfill-C).
 - **Skip Robustness Run Context** = scaled RISK + same from/to dates + real ticks — resolved.
 - Invoke = separate CLI/final step; status written to CSV + optimizations dashboard — resolved.
-- On fail: `passed=false` + `robustness_failed`, clear keep / `best_survivors` + Best artifact cleanup (F1); on pass: `skip_robustness_pass=true` (P1); untested ranks 6–15 unchanged (U1) — resolved.
+- On fail: `passed=false` + `robustness_failed`, clear keep / `best_survivors` + Best artifact cleanup (F1); on pass: `skip_robustness_pass=true` (P1); untested ranks beyond the auto top-5 unchanged (U1) — resolved.
 - Skip opt tester = complete + real ticks + no forward (Optimization=1, Model=4, ForwardMode=0) — resolved.
 - Favorites on fail = auto-unfavorite + portfolio rebuild (**Skip Robustness Favorite Sync**, option A) — resolved.
 - Untested / legacy Passed = **Skip Robustness Pending** (yellow); favorite-eligible; per-row **Manual Skip Robustness Trigger** — resolved.

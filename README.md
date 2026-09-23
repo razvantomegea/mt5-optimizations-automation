@@ -299,11 +299,11 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                                                                                                    |
 | Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                                                                                                                  |
 | Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                                                                                                       |
-| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default 25) per symbol                                                                                                      |
+| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default **25**) per symbol                                                                                                 |
 | Risk scaling (OHLC measure)       | One OHLC backtest at baseline RISK → set RISK once: `RISK × target / equity_DD` (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**. OHLC DD is the scale input only — not a reject gate. |
 | Real-ticks backtest (model 4)     | **One** full-period backtest at the scaled RISK                                                                                                                                                                    |
 | Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ target × 1.12** (default target 15 → ceiling **16.8**) on real ticks only                                                                                        |
-| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-keep-top-k` (default **15**)                                                                                                                      |
+| Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-top-n-per-symbol` (same cap as pick-from-optimization; default **25**)                                                                            |
 
 Recovery, LR Correlation, CAGR, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates. Calmar is both a gate and a factor in `validation_score`.
 
@@ -451,8 +451,7 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--complete-opt`              | off                                               | Shorthand: `--optimization 1` + `--model 4`                                    |
 | `--criterion`                 | `6`                                               | Optimization criterion                                                         |
 | `--forward-mode`              | `2`                                               | Forward testing mode                                                           |
-| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest                                              |
-| `--validate-keep-top-k`       | `15`                                              | Top survivors per job after validation ranking                                 |
+| `--validate-top-n-per-symbol` | `25`                                              | Top passes per symbol to backtest, and max survivors kept after ranking        |
 | `--min-forward-result`        | `3`                                               | Forward Result gate (≥)                                                        |
 | `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                                            |
 | `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation                   |

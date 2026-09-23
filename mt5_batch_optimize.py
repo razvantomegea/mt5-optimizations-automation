@@ -166,7 +166,6 @@ COMPLETE_OPTIMIZATION_MODEL = "4"
 DEFAULT_RISK_ROUND_DECIMALS = 1
 DEFAULT_BACKTEST_TIMEOUT_SEC = 1800
 DEFAULT_VALIDATE_TOP_N_PER_SYMBOL = 25
-DEFAULT_VALIDATE_KEEP_TOP_K = 15
 DEFAULT_RUNS_PER_SET_FILE = 1
 
 
@@ -246,7 +245,6 @@ class ValidateJobConfig:
     xml_path: Path
     best_dir: Path
     top_n: int
-    keep_top_k: int
     deposit: str
     currency: str
     leverage: str
@@ -1142,10 +1140,10 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def _apply_top_k_ranking(rows: list[dict[str, Any]], keep_top_k: int) -> None:
+def _apply_top_k_ranking(rows: list[dict[str, Any]], top_n: int) -> None:
     survivors = [r for r in rows if _is_validation_pass(r)]
     survivors.sort(key=_validation_rank_key, reverse=True)
-    keep_ids = {id(r) for r in survivors[:keep_top_k]}
+    keep_ids = {id(r) for r in survivors[:top_n]}
     for row in rows:
         row["keep"] = id(row) in keep_ids
 
@@ -1531,7 +1529,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             )
         )
 
-    _apply_top_k_ranking(new_rows, cfg.keep_top_k)
+    _apply_top_k_ranking(new_rows, cfg.top_n)
     for row, cand_stem, generated_set, ohlc_report, real_report, cand in pending_copies:
         cfg.db_reporter.validation_result(
             row=row, parameters=cand.params, real_report_path=real_report
@@ -1558,7 +1556,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
     if new_rows:
         print(
             f"  Final ranking: {kept}/{len(new_rows)} kept "
-            f"(top {cfg.keep_top_k} by validation score; "
+            f"(top {cfg.top_n} by validation score; "
             f"risk scaling + sharpe/Calmar/DD gates required)"
         )
     elif cfg.verbose:
@@ -1671,7 +1669,6 @@ def _validate_job_config_from_args(
         xml_path=xml_path,
         best_dir=best_dir,
         top_n=args.validate_top_n_per_symbol,
-        keep_top_k=args.validate_keep_top_k,
         deposit=args.deposit,
         currency=args.currency,
         leverage=args.leverage,
@@ -1818,13 +1815,10 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--validate-top-n-per-symbol",
         type=int,
         default=DEFAULT_VALIDATE_TOP_N_PER_SYMBOL,
-        help="Top optimization passes per symbol to backtest (default: 25)",
-    )
-    p.add_argument(
-        "--validate-keep-top-k",
-        type=int,
-        default=DEFAULT_VALIDATE_KEEP_TOP_K,
-        help="Max survivors per job after validation ranking (default: 15)",
+        help=(
+            "Top optimization passes per symbol to backtest, and max survivors "
+            f"kept after validation ranking (default: {DEFAULT_VALIDATE_TOP_N_PER_SYMBOL})"
+        ),
     )
     p.add_argument(
         "--backtest-timeout-seconds",
