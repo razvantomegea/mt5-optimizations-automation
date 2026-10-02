@@ -263,7 +263,7 @@ def run_combined_portfolio(manifest: PortfolioManifest) -> CombinedPortfolioResu
         leverage=manifest.leverage,
         portable=portable,
         timeout_seconds=60 * 60 * 12,
-        max_tester_memory_mb=int(os.environ.get("MT5_PORTFOLIO_MEMORY_LIMIT_MB", "16384")),
+        max_tester_memory_mb=int(os.environ.get("MT5_PORTFOLIO_MEMORY_LIMIT_MB", "32768")),
     )
     if not export_path.is_file() or export_path.stat().st_mtime + 2.0 < started_at:
         raise ValueError("Combined tester did not write a fresh equity export")
