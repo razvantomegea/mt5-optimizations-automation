@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import time
@@ -28,6 +30,30 @@ _ALLOWED_ON_TESTER_PORT = frozenset({"metatester64.exe", "terminal64.exe"})
 SW_SHOWMINNOACTIVE = 7
 
 _managed_terminal: subprocess.Popen[Any] | None = None
+
+
+def mt5_tester_memory_mb() -> float:
+    """Working set of local MT5 tester agents; fail closed if it cannot be read."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq metatester64.exe", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError("Cannot monitor MT5 tester memory") from error
+    if result.returncode != 0:
+        raise RuntimeError(f"Cannot monitor MT5 tester memory: {result.stderr.strip()}")
+    total_kb = 0
+    for row in csv.reader(result.stdout.splitlines()):
+        if len(row) >= 5 and row[0].lower() == "metatester64.exe":
+            memory_kb = re.sub(r"[^0-9]", "", row[4])
+            if not memory_kb:
+                raise RuntimeError("Cannot parse MT5 tester memory usage")
+            total_kb += int(memory_kb)
+    return total_kb / 1024.0
 
 
 def format_set_param_value(v: Any) -> str:

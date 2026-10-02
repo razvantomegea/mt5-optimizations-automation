@@ -113,3 +113,34 @@ def test_stable_result_id_matches_ts_fixture() -> None:
         stable_result_id(run_id="run-1", job_index=1, pass_id=8635)
         == "721a59b503a9df6aa0b92c4bb0a80a1d3dfdb3016d63b4ab6f92da2b3050693f"
     )
+
+
+def test_unfavorite_survivor_set_deletes_favorites_without_touching_best(
+    tmp_path: Path,
+) -> None:
+    from mt5_skip_robustness import unfavorite_survivor_set
+
+    favorites_dir = tmp_path / "Favorites"
+    best_dir = tmp_path / "Best"
+    (favorites_dir / "sets").mkdir(parents=True)
+    (favorites_dir / "reports" / "EURUSD").mkdir(parents=True)
+    (best_dir / "sets").mkdir(parents=True)
+    set_name = "EURUSD_M15_Classic_pass1.set"
+    (favorites_dir / "sets" / set_name).write_text("fav", encoding="utf-8")
+    (
+        favorites_dir / "reports" / "EURUSD" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    ).write_text("report", encoding="utf-8")
+    (best_dir / "sets" / set_name).write_text("best", encoding="utf-8")
+
+    unfavorite_survivor_set(
+        set_name=set_name,
+        symbol="EURUSD",
+        best_dir=best_dir,
+        favorites_dir=favorites_dir,
+    )
+
+    assert not (favorites_dir / "sets" / set_name).is_file()
+    assert not (
+        favorites_dir / "reports" / "EURUSD" / "EURUSD_M15_Classic_pass1_realticks.htm"
+    ).is_file()
+    assert (best_dir / "sets" / set_name).read_text(encoding="utf-8") == "best"

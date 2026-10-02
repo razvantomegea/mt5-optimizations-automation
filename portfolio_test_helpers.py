@@ -89,19 +89,28 @@ def series(
     )
 
 
-def deal_row(*, time: str, direction: str, balance: str) -> str:
+def deal_row(
+    *,
+    time: str,
+    direction: str,
+    balance: str,
+    deal_type: str = "buy",
+    volume: str = "0.10",
+    price: str = "1.10000",
+    profit: str = "510.00",
+) -> str:
     cells = [
         time,
         "1",
         "EURUSD",
-        "buy",
+        deal_type,
         direction,
-        "0.10",
-        "1.10000",
+        volume,
+        price,
         "1",
         "-10.00",
         "0.00",
-        "510.00",
+        profit,
         balance,
         "",
     ]

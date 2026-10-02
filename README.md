@@ -199,7 +199,7 @@ python mt5_batch_optimize.py --validate-only `
 
 **No candidates after optimization?** Check forward-selection counts in `--verbose` output (`back_sharpe`, `forward_sharpe`, `forward_result` rejections).
 
-**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, `risk_scaling_zero_dd`, or `risk_scaling_probe_failed`. Empty stub reports (`deposit=0`, `bars=0`) usually mean **localhost:3000 was taken** during the run — preflight normally clears foreign listeners (e.g. `pnpm dev`); if something rebinds mid-batch, stop it and retry.
+**No survivors after validation?** Check `reject_reason` in `best_summary.csv` for `low_calmar`, `holding_too_long`, `low_validation_sharpe`, `high_equity_dd`, `dd_fail`, `risk_scaling_zero_dd`, or `risk_scaling_probe_failed`. Empty stub reports (`deposit=0`, `bars=0`) usually mean **localhost:3000 was taken** during the run — preflight normally clears foreign listeners (e.g. `pnpm dev`); if something rebinds mid-batch, stop it and retry.
 
 ### Resume after interruption
 
@@ -256,13 +256,13 @@ python mt5_step_usage.py --best-dir "C:\path\to\Best" --out reports/custom_step_
 
 ### Per-company favorites portfolio
 
-Merge favorited strategies into one trade-by-trade backtest **per broker company** and save each snapshot to Postgres. Cashflows are scaled to the shared account using **equity at entry** (lot size frozen for the life of the position), not re-levered at close when other strategies move the balance.
+Build one real-tick MT5 Strategy Tester run **per broker company** with all favorited TrendReversal configurations on a shared hedging account. The tester supplies the combined balance, floating equity, drawdowns, profit, and ratios. Source test windows may be disjoint; each configuration runs only within its own window while the account balance carries forward through gaps. A Python deal merge remains available for diagnosis and is not published as verified performance.
 
 ```powershell
 python mt5_portfolio_favorites.py
 ```
 
-Requires `POSITIONRELAY_USER_ID` only. Re-run after favorites change (rebuilds one portfolio snapshot per broker company). After upgrading from the old merged `all-favorites` snapshot, run this once to migrate. The dashboard shows **View portfolio** when a company is selected and that company's snapshot exists.
+Requires `POSITIONRELAY_USER_ID`, local real-tick reports and `.set` files, and an available MT5 terminal with matching tester history. With the heartbeat worker running, adding or removing a favorite queues an automatic rebuild. Add is disabled during an active optimization batch; remove remains available and its file move and rebuild wait until the batch ends. Adjacent favorite changes use one rebuild. The dashboard hides stale metrics and shows a refresh error if the MT5 test fails. Each company is prepared independently: missing reports or a tester memory abort store an `unavailable` snapshot for that company so another company's verified metrics can still publish, while the sync command still fails until every company is verified. The combined tester has no fixed configuration-count cap, but a run stops if local tester agents exceed 16 GB of working memory by default (`MT5_PORTFOLIO_MEMORY_LIMIT_MB` can raise this on a larger machine); this leaves the portfolio unavailable instead of publishing partial metrics. Run the command above for a manual rebuild or migration from the old merged `all-favorites` snapshot.
 
 ### Run unit tests
 
@@ -299,13 +299,13 @@ Parses `reports/*.xml` (see [Forward data](#forward-data) below).
 | Custom-desc scan                  | Sort by in-sample **Custom/Result** descending; stop when Custom/Result **< 6**                                                                                                                                    |
 | Back gates (per row in scan)      | Sharpe **≥ 1.0** (`--min-sharpe`)                                                                                                                                                                                  |
 | Forward gates (per row)           | Forward Sharpe **≥ 1.0** (`--min-sharpe`), forward Result **≥ 3** (required)                                                                                                                                       |
-| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default **25**) per symbol                                                                                                 |
+| Pick from optimization            | Rank survivors by **Custom + forward Result**; take top `--validate-top-n-per-symbol` (default **25**) per symbol                                                                                                  |
 | Risk scaling (OHLC measure)       | One OHLC backtest at baseline RISK → set RISK once: `RISK × target / equity_DD` (scale-up or scale-down, including RISK **&lt; 1**); clamp RISK to **≥ 0.1**. OHLC DD is the scale input only — not a reject gate. |
 | Real-ticks backtest (model 4)     | **One** full-period backtest at the scaled RISK                                                                                                                                                                    |
-| Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, equity DD **≤ target × 1.12** (default target 15 → ceiling **16.8**) on real ticks only                                                                                        |
+| Real-ticks validation gates       | Sharpe **≥ 1.0**, Calmar **≥ 1.0**, max holding **≤ 365** calendar days (FIFO lot slices; open lots use last deal time), equity DD **≤ target × 1.12** (default target 15 → ceiling **16.8**) on real ticks only   |
 | Final ranking among survivors     | Composite `validation_score` on real ticks; keep top `--validate-top-n-per-symbol` (same cap as pick-from-optimization; default **25**)                                                                            |
 
-Recovery, LR Correlation, CAGR, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates. Calmar is both a gate and a factor in `validation_score`.
+Recovery, LR Correlation, CAGR, K-Ratio, stagnation, ulcer index, time under water, and margin level are **logged** in `best_summary.csv` but **not** rejection gates. Calmar is both a gate and a factor in `validation_score`. Max holding is a gate only (not in `validation_score`).
 
 Dashboard soft-pass treats return-only rejects as amber “low return”: live token `low_calmar`, plus orphan historical `low_cagr` when Calmar is missing. A one-shot DB/CSV migrator rewrote eligible `low_cagr` rows and was removed on purpose.
 
@@ -336,7 +336,7 @@ Override any column with `--col-sharpe`, `--col-recovery`, `--col-custom`, etc.
 
 ### Validation CSVs
 
-**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_calmar`, `validation_pass`, and `reject_reason` (`low_calmar`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_zero_dd`, `risk_scaling_probe_failed`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_cagr_pct`, `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
+**`best_summary.csv`** — all validated rows (appended across jobs). Key columns: gate metrics `validation_sharpe`, `validation_calmar`, `validation_max_holding_days`, `validation_pass`, and `reject_reason` (`low_calmar`, `holding_too_long`, `low_validation_sharpe`, `high_equity_dd`, `risk_scaling_zero_dd`, `risk_scaling_probe_failed`, `dd_fail`, `missing_validation_metrics`, `backtest_error`). Informational columns include `validation_cagr_pct`, `validation_recovery`, `validation_score`, equity-quality metrics, DD %, and risk-scaling fields.
 
 **`best_survivors.csv`** — subset where `keep=true` (header-only when none pass).
 
@@ -416,7 +416,7 @@ While the worker is running, the dashboard shows batch progress, pass/fail feed,
    python mt5_portfolio_favorites.py
    ```
 
-   If a favorite has no local realticks report (for example after **Clean** removed `Best/` artifacts), the portfolio builder uses the equity curve stored in the dashboard for that strategy. Removing the last favorite clears the stored portfolio snapshot.
+   If a favorite has no local real-ticks report or `.set` file, the verified build is unavailable until that artifact is restored. Removing the last favorite clears the stored portfolio snapshot.
 
 4. Select a company in the dashboard and open **View portfolio**.
 
@@ -456,6 +456,7 @@ Use `--resume` to skip jobs whose reports already exist (**both** `report.xml` a
 | `--min-back-result`           | `6`                                               | Optimization Custom/Result gate (≥)                                            |
 | `--min-sharpe`                | `1.0`                                             | Sharpe gate (≥) for back, forward, and real-ticks validation                   |
 | `--min-validation-calmar`     | `1`                                               | Real-ticks Calmar gate (≥)                                                     |
+| `--max-holding-days`          | `365`                                             | Real-ticks max FIFO trade holding period in calendar days (≤)                  |
 | `--deposit` / `--currency`    | `100000` / `USD`                                  | Tester account balance and currency (dashboard Start/Resume forwards these)    |
 | `--target-equity-dd`          | `15.0`                                            | Linear RISK scaling target equity DD % (dashboard **Max equity drawdown %**)   |
 | `--min-scaled-risk`           | `0.1`                                             | Clamp floor for scaled RISK (does not reject; avoids RISK 0)                   |

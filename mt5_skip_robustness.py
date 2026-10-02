@@ -467,6 +467,39 @@ class SkipRobustnessRunParams:
     margin: float = SKIP_ROBUSTNESS_DD_MARGIN
 
 
+def remove_favorites_artifacts(
+    *,
+    favorites_dir: Path,
+    set_name: str,
+    symbol: str,
+) -> None:
+    """Delete Favorites set + matching reports in place (no move back to Best)."""
+    stem = Path(set_name).stem
+    target_set = favorites_dir / "sets" / set_name
+    if target_set.is_file():
+        try:
+            target_set.unlink()
+        except PermissionError:
+            pass
+    report_dir = favorites_dir / "reports" / symbol
+    if not report_dir.is_dir():
+        return
+    for path in report_dir.iterdir():
+        if not path.is_file():
+            continue
+        name = path.name
+        if (
+            name == stem
+            or name.startswith(f"{stem}.")
+            or name.startswith(f"{stem}_")
+            or name.startswith(f"{stem}-")
+        ):
+            try:
+                path.unlink()
+            except PermissionError:
+                continue
+
+
 def unfavorite_survivor_set(
     *,
     set_name: str,
@@ -474,27 +507,17 @@ def unfavorite_survivor_set(
     best_dir: Path,
     favorites_dir: Path,
 ) -> None:
-    """Unfavorite a set via mt5_favorite_strategy when present under Favorites/sets."""
-    script = PACKAGE_ROOT / "mt5_favorite_strategy.py"
-    fav = favorites_dir / "sets" / set_name
-    if not fav.is_file():
-        return
-    subprocess.run(
-        [
-            sys.executable,
-            str(script),
-            "--set-file",
-            str(fav),
-            "--symbol",
-            symbol,
-            "--best-dir",
-            str(best_dir),
-            "--favorites-dir",
-            str(favorites_dir),
-            "--unfavorite",
-        ],
-        cwd=str(PACKAGE_ROOT),
-        check=False,
+    """Remove Favorites artifacts for a survivor.
+
+    Skip-robustness fail cleanup deletes Best next; moving Fav→Best first caused
+    favorited sets to be wiped from both trees with no local recovery path.
+    ``best_dir`` is unused (kept for call-site compatibility).
+    """
+    _ = best_dir
+    remove_favorites_artifacts(
+        favorites_dir=favorites_dir,
+        set_name=set_name,
+        symbol=symbol,
     )
 
 

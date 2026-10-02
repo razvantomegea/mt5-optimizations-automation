@@ -90,7 +90,8 @@ class WorkerStore(Protocol):
     def fail_running_runs(self, *, error: str) -> None: ...
     def clear_optimization_data(self) -> None: ...
     def claim_pending_command(
-        self, *, interruptible_only: bool = False
+        self, *, interruptible_only: bool = False, favorite_only: bool = False,
+        stop_only: bool = False,
     ) -> dict[str, Any] | None: ...
 
 
@@ -357,6 +358,7 @@ class OptimizerHeartbeat:
         self._log = log or (lambda _message: None)
         self._random_id = random_id or (lambda: str(uuid.uuid4()))
         self._child_busy = False
+        self._portfolio_busy = False
         self._active_run: Any = None
 
 
@@ -364,7 +366,7 @@ class OptimizerHeartbeat:
         self._child_busy = busy
 
     def touch_heartbeat(self) -> None:
-        self._worker_store.touch_heartbeat(busy=self._child_busy)
+        self._worker_store.touch_heartbeat(busy=self._child_busy or self._portfolio_busy)
 
     def await_active_run(self, timeout: float | None = None) -> None:
         active_run = self._active_run
@@ -378,10 +380,21 @@ class OptimizerHeartbeat:
         self.await_active_run(timeout=30.0)
 
     def poll_commands(self) -> None:
+        # A portfolio build can be a long MT5 test. Keep the heartbeat alive,
+        # allow Stop to kill the managed terminal, but leave Clean pending until
+        # the portfolio thread exits so it cannot delete in-use artifacts.
+        if self._portfolio_busy:
+            command = self._worker_store.claim_pending_command(stop_only=True)
+            if command:
+                self.process_command(command)
+            return
         command = self._worker_store.claim_pending_command(
             interruptible_only=self._child_busy
         )
         if command:
+            if command["action"] in {"favorite", "unfavorite"}:
+                self._process_favorite_batch(command)
+                return
             self.process_command(command)
 
     def process_command(self, command: dict[str, Any]) -> None:
@@ -430,11 +443,51 @@ class OptimizerHeartbeat:
     ) -> None:
         set_file, symbol = read_favorite_payload(payload)
         self._run_favorite(set_file, symbol, action == "unfavorite")
-        try:
-            self._run_portfolio_build()
-        except Exception as error:  # noqa: BLE001 - keep favorite move result
-            self._log(f"Portfolio refresh failed: {error}")
-        self._worker_store.mark_command_done(command_id=command_id, status="done")
+        self._launch_portfolio_build([command_id])
+
+    def _process_favorite_batch(self, first: dict[str, Any]) -> None:
+        command_ids: list[str] = []
+        command: dict[str, Any] | None = first
+        while command is not None:
+            command_id = str(command["id"])
+            try:
+                payload = command.get("payload")
+                set_file, symbol = read_favorite_payload(payload if isinstance(payload, dict) else {})
+                self._run_favorite(set_file, symbol, command["action"] == "unfavorite")
+                command_ids.append(command_id)
+            except Exception as error:  # noqa: BLE001
+                self._worker_store.mark_command_done(
+                    command_id=command_id, status="failed", error=str(error)
+                )
+                self._log(f"Favorite file move failed: {error}")
+            command = self._worker_store.claim_pending_command(favorite_only=True)
+        if command_ids:
+            self._launch_portfolio_build(command_ids)
+
+    def _launch_portfolio_build(self, command_ids: list[str]) -> None:
+
+        import threading
+
+        def runner() -> None:
+            try:
+                self._run_portfolio_build()
+                for command_id in command_ids:
+                    self._worker_store.mark_command_done(command_id=command_id, status="done")
+            except Exception as error:  # noqa: BLE001
+                message = str(error)
+                self._log(f"Portfolio refresh failed: {message}")
+                for command_id in command_ids:
+                    self._worker_store.mark_command_done(
+                        command_id=command_id, status="failed", error=message
+                    )
+            finally:
+                self._portfolio_busy = False
+                self._active_run = None
+
+        self._portfolio_busy = True
+        thread = threading.Thread(target=runner, daemon=True)
+        self._active_run = thread
+        thread.start()
 
     def _process_skip_robustness_command(
         self,

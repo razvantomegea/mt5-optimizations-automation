@@ -282,6 +282,7 @@ def test_process_favorite_command_moves_files() -> None:
             },
         }
     )
+    heartbeat.await_active_run(timeout=2)
 
     run_favorite.assert_called_with(
         "foo.set",
@@ -326,7 +327,7 @@ def test_process_favorite_command_failure_does_not_fail_running_runs() -> None:
     worker_store.set_worker_idle.assert_not_called()
 
 
-def test_process_favorite_command_marks_done_when_portfolio_refresh_fails() -> None:
+def test_process_favorite_command_marks_failed_when_portfolio_refresh_fails() -> None:
     worker_store = MagicMock()
     run_favorite = MagicMock()
     run_portfolio_build = MagicMock(side_effect=RuntimeError("Portfolio build failed"))
@@ -349,13 +350,53 @@ def test_process_favorite_command_marks_done_when_portfolio_refresh_fails() -> N
             },
         }
     )
+    heartbeat.await_active_run(timeout=2)
 
     run_favorite.assert_called_once()
     run_portfolio_build.assert_called_once()
     worker_store.mark_command_done.assert_called_with(
         command_id="cmd-favorite",
-        status="done",
+        status="failed",
+        error="Portfolio build failed",
     )
+
+
+def test_poll_coalesces_adjacent_favorite_changes_into_one_build() -> None:
+    from threading import Event
+
+    worker_store = MagicMock()
+    worker_store.claim_pending_command.side_effect = [
+        {"id": "add", "action": "favorite", "payload": {"setFile": "foo.set", "symbol": "EURUSD"}},
+        {"id": "remove", "action": "unfavorite", "payload": {"setFile": "foo.set", "symbol": "EURUSD"}},
+        None,
+        None,
+    ]
+    building = Event()
+    release = Event()
+
+    def run_portfolio_build() -> None:
+        building.set()
+        assert release.wait(2)
+
+    run_favorite = MagicMock()
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=MagicMock(),
+        run_favorite=run_favorite,
+        run_portfolio_build=run_portfolio_build,
+    )
+    heartbeat.poll_commands()
+    assert building.wait(2)
+    heartbeat.poll_commands()
+    assert worker_store.claim_pending_command.call_count == 4
+    worker_store.claim_pending_command.assert_any_call(stop_only=True)
+    release.set()
+    heartbeat.await_active_run(timeout=2)
+    assert run_favorite.call_count == 2
+    worker_store.mark_command_done.assert_any_call(command_id="add", status="done")
+    worker_store.mark_command_done.assert_any_call(command_id="remove", status="done")
 
 
 def test_read_favorite_payload_normalizes_symbol_before_validate() -> None:
@@ -393,6 +434,90 @@ def test_resolve_run_id_reuses_payload_on_resume() -> None:
         )
         == "00000000-0000-0000-0000-000000000001"
     )
+
+
+def test_poll_commands_allows_stop_while_portfolio_busy() -> None:
+    from threading import Event
+
+    worker_store = MagicMock()
+    worker_store.claim_pending_command.side_effect = [
+        {
+            "id": "add",
+            "action": "favorite",
+            "payload": {"setFile": "foo.set", "symbol": "EURUSD"},
+        },
+        None,
+        {"id": "cmd-stop", "action": "stop"},
+        None,
+    ]
+    building = Event()
+    release = Event()
+    run_stop = MagicMock()
+
+    def run_portfolio_build() -> None:
+        building.set()
+        assert release.wait(2)
+
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=run_stop,
+        run_clean=MagicMock(),
+        run_favorite=MagicMock(),
+        run_portfolio_build=run_portfolio_build,
+    )
+    heartbeat.poll_commands()
+    assert building.wait(2)
+
+    heartbeat.poll_commands()
+    run_stop.assert_called_once()
+    worker_store.mark_command_done.assert_any_call(
+        command_id="cmd-stop", status="done"
+    )
+    worker_store.claim_pending_command.assert_any_call(stop_only=True)
+
+    release.set()
+    heartbeat.await_active_run(timeout=2)
+
+
+def test_poll_commands_skips_clean_while_portfolio_busy() -> None:
+    from threading import Event
+
+    worker_store = MagicMock()
+    worker_store.claim_pending_command.side_effect = [
+        {
+            "id": "add",
+            "action": "favorite",
+            "payload": {"setFile": "foo.set", "symbol": "EURUSD"},
+        },
+        None,
+        None,
+    ]
+    building = Event()
+    release = Event()
+    run_clean = MagicMock()
+
+    def run_portfolio_build() -> None:
+        building.set()
+        assert release.wait(2)
+
+    heartbeat = create_optimizer_heartbeat(
+        worker_store=worker_store,
+        run_optimize=MagicMock(),
+        run_stop=MagicMock(),
+        run_clean=run_clean,
+        run_favorite=MagicMock(),
+        run_portfolio_build=run_portfolio_build,
+    )
+    heartbeat.poll_commands()
+    assert building.wait(2)
+
+    heartbeat.poll_commands()
+    run_clean.assert_not_called()
+    worker_store.claim_pending_command.assert_any_call(stop_only=True)
+
+    release.set()
+    heartbeat.await_active_run(timeout=2)
 
 
 def test_poll_commands_fails_invalid_resume_payload() -> None:

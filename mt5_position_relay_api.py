@@ -211,11 +211,19 @@ class PositionRelayOptimizerApi:
             body["maxComboDdPct"] = max_combo_dd_pct
         self._request("POST", "/api/optimizer/worker", body=body)
 
-    def claim_pending_command(self, *, interruptible_only: bool = False) -> dict[str, Any] | None:
+    def claim_pending_command(
+        self, *, interruptible_only: bool = False, favorite_only: bool = False,
+        stop_only: bool = False,
+    ) -> dict[str, Any] | None:
         payload = self._request(
             "POST",
             "/api/optimizer/worker",
-            body={"op": "poll", "interruptibleOnly": interruptible_only},
+            body={
+                "op": "poll",
+                "interruptibleOnly": interruptible_only,
+                "favoriteOnly": favorite_only,
+                "stopOnly": stop_only,
+            },
         )
         command = payload.get("command")
         return command if isinstance(command, dict) else None

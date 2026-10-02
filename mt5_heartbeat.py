@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from mt5_heartbeat_core import (
     OptimizeConfig,
@@ -19,7 +19,11 @@ from mt5_heartbeat_core import (
 )
 from mt5_paths import DEFAULT_BEST_DIR, DEFAULT_FAVORITES_DIR, resolve_terminal
 from mt5_env import load_repo_env
-from mt5_portfolio_favorites import refresh_company_favorites_portfolios
+from mt5_portfolio_favorites import (
+    refresh_company_favorites_portfolios,
+    refresh_has_unavailable,
+    unavailable_refresh_error,
+)
 from mt5_position_relay_api import PositionRelayOptimizerApi
 from mt5_position_relay_auth import assert_optimizer_access
 from mt5_workspace import PACKAGE_ROOT
@@ -100,16 +104,26 @@ class HeartbeatHost:
                 log(f"Already in Best/: {set_file}")
                 return
             else:
-                raise RuntimeError(f"Set file not found for unfavorite: {set_file}")
+                # DB already dropped the favorite; local files may have been removed by
+                # skip-robustness fail cleanup.
+                log(f"Already absent for unfavorite: {set_file}")
+                return
         elif favorites_set.is_file():
             log(f"Already in Favorites/: {set_file}")
             return
-        elif best_set.is_file():
-            source_set = best_set
         else:
-            raise RuntimeError(
-                f"Set file not found under {DEFAULT_BEST_DIR / 'sets'}: {set_file}"
-            )
+            if not best_set.is_file():
+                staging_set = PACKAGE_ROOT / "validate_staging" / set_file
+                if staging_set.is_file():
+                    best_set.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(staging_set, best_set)
+                    log(f"Restored from validate_staging/: {set_file}")
+            if best_set.is_file():
+                source_set = best_set
+            else:
+                raise RuntimeError(
+                    f"Set file not found under {DEFAULT_BEST_DIR / 'sets'}: {set_file}"
+                )
 
         argv = [
             sys.executable,
@@ -218,11 +232,14 @@ class HeartbeatHost:
             return
         for result in results:
             company = result.get("company") or result.get("portfolio_id")
+            state = result.get("validation_state") or "verified"
             log(
                 f"Portfolio updated ({company}): "
                 f"{result['strategy_count']} strategies, "
-                f"{result['total_trades']} trades"
+                f"{result.get('total_trades', 0)} trades, state={state}"
             )
+        if refresh_has_unavailable(results):
+            raise RuntimeError(unavailable_refresh_error(results))
 
     def run_cycle(self) -> None:
         try:

@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import csv
 import itertools
+import math
 import os
 import re
 import shutil
@@ -69,6 +70,7 @@ from mt5_tester_runtime import (
     ensure_terminal_available,
     force_kill_terminal64,
     format_set_param_value,
+    mt5_tester_memory_mb,
     resolve_report_path,
     start_terminal,
     wait_for_terminal_exit,
@@ -155,6 +157,7 @@ def default_param_file_paths(set_dir: Path) -> list[str]:
     return [str(path) for path in sorted(discover_set_files(set_dir).values())]
 
 DEFAULT_MIN_VALIDATION_CALMAR = 1.0
+DEFAULT_MAX_HOLDING_DAYS = 365.0
 DEFAULT_TARGET_EQUITY_DD = 15.0
 # Reject ceiling = target × 1.12 (float; keep 12% slack for small targets e.g. 4 → 4.48).
 DEFAULT_MAX_EQUITY_DD = round(DEFAULT_TARGET_EQUITY_DD * 1.12, 4)
@@ -231,6 +234,7 @@ class ValidationThresholds:
     min_sharpe: float = DEFAULT_MIN_SHARPE
     min_calmar: float = DEFAULT_MIN_VALIDATION_CALMAR
     max_equity_dd: float = DEFAULT_MAX_EQUITY_DD
+    max_holding_days: float = DEFAULT_MAX_HOLDING_DAYS
 
 
 @dataclass
@@ -648,6 +652,8 @@ def run_single_backtest(
     leverage: str,
     portable: bool,
     timeout_seconds: float,
+    execution_mode: int = -1,
+    max_tester_memory_mb: int | None = None,
 ) -> Path:
     reports_dir = work_dir / "reports"
     configs_dir = work_dir / "configs"
@@ -676,7 +682,7 @@ def run_single_backtest(
         "Symbol": symbol,
         "Period": timeframe,
         "Model": str(model),
-        "ExecutionMode": "-1",
+        "ExecutionMode": str(execution_mode),
         "Optimization": "0",
         "FromDate": from_date,
         "ToDate": to_date,
@@ -701,10 +707,30 @@ def run_single_backtest(
     # Optimization=0 (HTML Calmar/deals report) but start minimized.
     proc = start_terminal(cmd, cwd=install_dir, show_window=model != 4)
     timed_out = False
+    memory_exceeded = False
+    monitor_error: RuntimeError | None = None
     try:
-        proc.wait(timeout=timeout_seconds)
+        if max_tester_memory_mb is None:
+            proc.wait(timeout=timeout_seconds)
+        else:
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                try:
+                    proc.wait(timeout=min(2.0, max(0.01, deadline - time.monotonic())))
+                    break
+                except subprocess.TimeoutExpired:
+                    try:
+                        if mt5_tester_memory_mb() > max_tester_memory_mb:
+                            memory_exceeded = True
+                            break
+                    except RuntimeError as error:
+                        monitor_error = error
+                        break
+                    if time.monotonic() >= deadline:
+                        raise
     except subprocess.TimeoutExpired:
         timed_out = True
+    if timed_out or memory_exceeded or monitor_error is not None:
         proc.kill()
         try:
             proc.wait(timeout=30)
@@ -713,6 +739,12 @@ def run_single_backtest(
         force_kill_terminal64()
     # ShutdownTerminal=1 should exit; if our managed UI hangs, force-kill that leftover.
     wait_for_terminal_exit(force_kill=True)
+    if monitor_error is not None:
+        raise monitor_error
+    if memory_exceeded:
+        raise RuntimeError(
+            f"MT5 portfolio tester exceeded {max_tester_memory_mb} MB memory budget"
+        )
     if timed_out:
         raise RuntimeError(
             f"MT5 backtest timed out after {timeout_seconds:.0f}s: {symbol} {timeframe} model={model}"
@@ -1041,6 +1073,7 @@ def extract_validation_metrics(
                 initial_balance=0.0,
                 final_balance=0.0,
                 test_years=0.0,
+                max_holding_days=None,
             )
             return 0.0, 0.0, equity, 0.0
         return None, None, None, None
@@ -1069,6 +1102,7 @@ def candidate_summary_row(
     validation_calmar: Any = "",
     validation_k_ratio_proxy: Any = "",
     validation_max_stagnation_days: Any = "",
+    validation_max_holding_days: Any = "",
     validation_ulcer_index: Any = "",
     validation_time_under_water_pct: Any = "",
     margin_level_pct: Any = "",
@@ -1106,6 +1140,7 @@ def candidate_summary_row(
         "validation_calmar": validation_calmar,
         "validation_k_ratio_proxy": validation_k_ratio_proxy,
         "validation_max_stagnation_days": validation_max_stagnation_days,
+        "validation_max_holding_days": validation_max_holding_days,
         "validation_ulcer_index": validation_ulcer_index,
         "validation_time_under_water_pct": validation_time_under_water_pct,
         "margin_level_pct": margin_level_pct,
@@ -1193,7 +1228,24 @@ def _validation_passes(
         return False
     if val_sharpe < thresholds.min_sharpe:
         return False
-    return val_equity.calmar >= thresholds.min_calmar
+    if val_equity.calmar < thresholds.min_calmar:
+        return False
+    if _holding_period_reject_reason(val_equity, thresholds):
+        return False
+    return True
+
+
+def _holding_period_reject_reason(
+    val_equity: EquityQualityMetrics | None,
+    thresholds: ValidationThresholds,
+) -> str:
+    if (
+        val_equity is not None
+        and val_equity.max_holding_days is not None
+        and val_equity.max_holding_days > thresholds.max_holding_days
+    ):
+        return "holding_too_long"
+    return ""
 
 
 def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
@@ -1256,6 +1308,7 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
         print(
             f"  Validation gates: sharpe>={vt.min_sharpe} "
             f"calmar>={vt.min_calmar} "
+            f"max_holding_days<={vt.max_holding_days} "
             f"equity_dd<={vt.max_equity_dd}% "
             f"(real ticks at scaled RISK)"
         )
@@ -1461,6 +1514,18 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
                     f"{val_equity.calmar:.2f} < "
                     f"{cfg.validation_thresholds.min_calmar}"
                 )
+        holding_reject_reason = _holding_period_reject_reason(
+            val_equity,
+            cfg.validation_thresholds,
+        )
+        if holding_reject_reason:
+            reject_reasons.append(holding_reject_reason)
+            if cfg.verbose:
+                print(
+                    f"    dropping pass={cand.pass_id}: max holding "
+                    f"{val_equity.max_holding_days:.1f}d > "
+                    f"{cfg.validation_thresholds.max_holding_days}"
+                )
 
         validation_pass = _validation_passes(
             risk_scaling_pass=risk_scaling_pass if cfg.risk_scaling.enabled else True,
@@ -1504,6 +1569,9 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             validation_max_stagnation_days=(
                 val_equity.max_stagnation_days if val_equity else ""
             ),
+            validation_max_holding_days=_format_optional_float(
+                val_equity.max_holding_days if val_equity else None
+            ),
             validation_ulcer_index=_format_optional_float(
                 val_equity.ulcer_index if val_equity else None
             ),
@@ -1522,8 +1590,17 @@ def validate_job(cfg: ValidateJobConfig) -> list[dict[str, Any]]:
             f"validation_pass={validation_pass} | "
             f"validation_score={val_score if val_score is not None else 'n/a'}"
             + (
-                f" | LR={val_equity.lr_correlation:.2f} CAGR={val_equity.cagr_pct:.2f}% "
-                f"Calmar={val_equity.calmar:.2f} stagnation={val_equity.max_stagnation_days}d"
+                (
+                    f" | LR={val_equity.lr_correlation:.2f} CAGR={val_equity.cagr_pct:.2f}% "
+                    f"Calmar={val_equity.calmar:.2f} "
+                    f"stagnation={val_equity.max_stagnation_days}d "
+                    f"max_hold="
+                    + (
+                        f"{val_equity.max_holding_days:.1f}d"
+                        if val_equity.max_holding_days is not None
+                        else "n/a"
+                    )
+                )
                 if val_equity is not None
                 else ""
             )
@@ -1595,12 +1672,16 @@ def _validation_thresholds_from_args(args: argparse.Namespace) -> ValidationThre
         min_sharpe=float(args.min_sharpe),
         min_calmar=float(args.min_validation_calmar),
         max_equity_dd=float(args.max_equity_dd),
+        max_holding_days=_require_positive(
+            "--max-holding-days",
+            float(args.max_holding_days),
+        ),
     )
 
 
 def _require_positive(name: str, value: float) -> float:
-    if value <= 0:
-        raise ValueError(f"{name} must be > 0, got {value}")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and > 0, got {value}")
     return value
 
 
@@ -1845,6 +1926,15 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         "--min-validation-calmar",
         default=str(DEFAULT_MIN_VALIDATION_CALMAR),
         help="Min Calmar on real ticks (default: 1)",
+    )
+    p.add_argument(
+        "--max-holding-days",
+        type=float,
+        default=DEFAULT_MAX_HOLDING_DAYS,
+        help=(
+            "Max FIFO trade holding period in calendar days on real ticks "
+            f"(default: {DEFAULT_MAX_HOLDING_DAYS})"
+        ),
     )
     p.add_argument(
         "--max-equity-dd",

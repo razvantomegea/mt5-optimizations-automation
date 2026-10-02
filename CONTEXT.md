@@ -48,10 +48,15 @@ _Avoid_: requiring skip robustness inside the main validate path
 Hard real-ticks return/risk gate: **Calmar ≥ 1.0** on the validation equity series. Replaces CAGR as the return gate; CAGR is not a pass/fail criterion.
 _Avoid_: CAGR gate; dual CAGR+Calmar return gates; treating Calmar as log-only
 
+### Max Holding Period Gate
+
+Hard real-ticks structural gate: longest FIFO lot holding period (calendar days from deal open → close; open lots use last deal timestamp) must be **≤ 365** by default (`--max-holding-days`). Reject token `holding_too_long` — **not** Soft Pass. Skip this gate only when no holds are measurable (`max_holding_days` is `None`).
+_Avoid_: soft-passing `holding_too_long`; confusing with `max_stagnation_days` (equity-high stagnation); requiring MQL5 sidecar position IDs for the first cut
+
 ### Soft Pass
 
 A validated row that failed **only** the return-quality reject (`low_calmar`): not a **Survivor**, amber “low return” in the dashboard, still included in parameter-stats aggregation. Orphan historical `low_cagr` (Calmar missing) remains Soft Pass. Live CLI = `--min-validation-calmar` (default 1). One-shot `low_cagr` migrator was run and deleted on purpose — do not restore.
-_Avoid_: treating Soft Pass as Passed/Survivor; soft-passing Sharpe/DD/risk-scaling fails; leaving `low_cagr` as the live producer token; resurrecting the deleted migrator
+_Avoid_: treating Soft Pass as Passed/Survivor; soft-passing Sharpe/DD/risk-scaling/`holding_too_long` fails; leaving `low_cagr` as the live producer token; resurrecting the deleted migrator
 
 ### Skip Robustness Optimization
 

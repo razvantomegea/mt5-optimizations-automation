@@ -11,6 +11,7 @@ from pathlib import Path
 from mt5_opt_report import read_report_text, to_float
 
 SECONDS_PER_YEAR = 365.25 * 86400.0
+SECONDS_PER_DAY = 86400.0
 
 
 @dataclass
@@ -26,6 +27,7 @@ class EquityQualityMetrics:
     initial_balance: float
     final_balance: float
     test_years: float
+    max_holding_days: float | None = None
 
 
 def _read_report_text(report_path: Path) -> str:
@@ -87,8 +89,8 @@ def parse_balance_rows(report_path: Path) -> tuple[list[datetime], list[float]]:
     return _parse_balance_rows(_read_report_text(report_path))
 
 
-EXIT_DEAL_DIRECTIONS = frozenset({"out", "in/out"})
-TRADE_DEAL_DIRECTIONS = frozenset({"in", "out", "in/out"})
+EXIT_DEAL_DIRECTIONS = frozenset({"out", "in/out", "out by"})
+TRADE_DEAL_DIRECTIONS = frozenset({"in", "out", "in/out", "out by"})
 _DEALS_SECTION_END_MARKERS = (
     re.compile(r"<b>Workings</b>", re.I),
     re.compile(r"<b>Results</b>", re.I),
@@ -122,6 +124,7 @@ class _OpenLot:
     volume: float
     entry_price: float
     is_long: bool
+    entry_time: datetime
 
 
 DEFAULT_FOREX_CONTRACT_SIZE = 100_000.0
@@ -202,6 +205,10 @@ def _floating_pnl(*, lots: list[_OpenLot], mark_price: float, contract_size: flo
     return total
 
 
+def _holding_days(entry_time: datetime, exit_time: datetime) -> float:
+    return (exit_time - entry_time).total_seconds() / SECONDS_PER_DAY
+
+
 def _close_lots_fifo(
     *,
     lots: list[_OpenLot],
@@ -211,7 +218,9 @@ def _close_lots_fifo(
     contract_sizes: dict[str, float],
     symbol: str,
     realized_profit: float,
-) -> None:
+    exit_time: datetime | None = None,
+    holding_days: list[float] | None = None,
+) -> float:
     remaining = volume
     kept: list[_OpenLot] = []
     closed_volume = 0.0
@@ -227,12 +236,15 @@ def _close_lots_fifo(
         closed = min(lot.volume, remaining)
         weighted_entry += lot.entry_price * closed
         closed_volume += closed
+        if holding_days is not None and exit_time is not None:
+            holding_days.append(_holding_days(lot.entry_time, exit_time))
         if closed < lot.volume:
             kept.append(
                 _OpenLot(
                     volume=lot.volume - closed,
                     entry_price=lot.entry_price,
                     is_long=lot.is_long,
+                    entry_time=lot.entry_time,
                 )
             )
         remaining -= closed
@@ -245,6 +257,7 @@ def _close_lots_fifo(
             entry=weighted_entry / closed_volume,
             exit_price=exit_price,
         )
+    return remaining
 
 
 def _apply_deal_row(
@@ -252,13 +265,21 @@ def _apply_deal_row(
     row: _ParsedDealRow,
     open_lots: dict[str, list[_OpenLot]],
     contract_sizes: dict[str, float],
+    holding_days: list[float] | None = None,
 ) -> None:
     symbol_lots = open_lots.setdefault(row.symbol, [])
     is_long_open = row.deal_type == "buy"
     if row.direction == "in":
-        symbol_lots.append(_OpenLot(volume=row.volume, entry_price=row.price, is_long=is_long_open))
+        symbol_lots.append(
+            _OpenLot(
+                volume=row.volume,
+                entry_price=row.price,
+                is_long=is_long_open,
+                entry_time=row.time,
+            )
+        )
         return
-    if row.direction == "out":
+    if row.direction in {"out", "out by"}:
         _close_lots_fifo(
             lots=symbol_lots,
             close_long=not is_long_open,
@@ -267,18 +288,58 @@ def _apply_deal_row(
             contract_sizes=contract_sizes,
             symbol=row.symbol,
             realized_profit=row.profit,
+            exit_time=row.time,
+            holding_days=holding_days,
         )
         return
-    _close_lots_fifo(
+    remaining = _close_lots_fifo(
         lots=symbol_lots,
-        close_long=is_long_open,
+        close_long=not is_long_open,
         volume=row.volume,
         exit_price=row.price,
         contract_sizes=contract_sizes,
         symbol=row.symbol,
         realized_profit=row.profit,
+        exit_time=row.time,
+        holding_days=holding_days,
     )
-    symbol_lots.append(_OpenLot(volume=row.volume, entry_price=row.price, is_long=is_long_open))
+    if remaining >= MIN_LOT_VOLUME:
+        symbol_lots.append(
+            _OpenLot(
+                volume=remaining,
+                entry_price=row.price,
+                is_long=is_long_open,
+                entry_time=row.time,
+            )
+        )
+
+
+def compute_max_holding_days_from_html(html: str) -> float | None:
+    """Max FIFO lot holding period in calendar days; open lots use last deal time."""
+    rows = _parse_deal_trade_rows(html)
+    if not rows:
+        return None
+
+    open_lots: dict[str, list[_OpenLot]] = {}
+    contract_sizes: dict[str, float] = {}
+    holding_days: list[float] = []
+
+    for row in rows:
+        _apply_deal_row(
+            row=row,
+            open_lots=open_lots,
+            contract_sizes=contract_sizes,
+            holding_days=holding_days,
+        )
+
+    last_time = rows[-1].time
+    for lots in open_lots.values():
+        for lot in lots:
+            holding_days.append(_holding_days(lot.entry_time, last_time))
+
+    if not holding_days:
+        return None
+    return max(holding_days)
 
 
 def reconstruct_deal_equity_series(
@@ -552,9 +613,9 @@ def compute_max_stagnation_days(times: list[datetime], balance: list[float]) -> 
             max_value = balance[i]
             last_high_time = times[i]
             continue
-        gap_days = (times[i] - last_high_time).total_seconds() / 86400.0
+        gap_days = (times[i] - last_high_time).total_seconds() / SECONDS_PER_DAY
         max_gap_days = max(max_gap_days, gap_days)
-    tail_gap = (times[-1] - last_high_time).total_seconds() / 86400.0
+    tail_gap = (times[-1] - last_high_time).total_seconds() / SECONDS_PER_DAY
     return int(max(max_gap_days, tail_gap))
 
 
@@ -594,6 +655,7 @@ def compute_equity_quality_from_series(
     lr_correlation: float | None = None,
     lr_std_error: float | None = None,
     equity_dd_pct: float | None = None,
+    max_holding_days: float | None = None,
 ) -> EquityQualityMetrics:
     if len(balance) < 2 or len(times) != len(balance):
         raise ValueError("Need at least two balance points with matching times")
@@ -619,6 +681,7 @@ def compute_equity_quality_from_series(
         initial_balance=initial,
         final_balance=final,
         test_years=years,
+        max_holding_days=max_holding_days,
     )
 
 
@@ -653,6 +716,7 @@ def extract_equity_quality(report_path: Path) -> EquityQualityMetrics:
         lr_correlation=lr,
         lr_std_error=lr_se,
         equity_dd_pct=equity_dd,
+        max_holding_days=compute_max_holding_days_from_html(text),
     )
 
 

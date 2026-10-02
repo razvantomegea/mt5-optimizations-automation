@@ -11,10 +11,28 @@ from unittest.mock import MagicMock, patch
 from mt5_tester_runtime import (
     SW_SHOWMINNOACTIVE,
     clear_report_artifacts,
+    mt5_tester_memory_mb,
     resolve_report_path,
     start_terminal,
     stop_managed_terminal,
 )
+
+
+def test_mt5_tester_memory_mb_sums_agent_working_sets() -> None:
+    with patch("mt5_tester_runtime.subprocess.run") as run:
+        run.return_value.returncode = 0
+        run.return_value.stdout = '"metatester64.exe","123","Console","1","1,024 K"\n"metatester64.exe","456","Console","1","2,048 K"\n'
+        assert mt5_tester_memory_mb() == 3.0
+
+
+def test_mt5_tester_memory_mb_fails_when_unavailable() -> None:
+    with patch("mt5_tester_runtime.subprocess.run") as run:
+        run.return_value.returncode = 1
+        run.return_value.stderr = "Access denied"
+        import pytest
+
+        with pytest.raises(RuntimeError, match="Cannot monitor MT5 tester memory"):
+            mt5_tester_memory_mb()
 
 
 def test_resolve_report_path_prefers_newer_html_over_stale_xml(tmp_path: Path) -> None:
