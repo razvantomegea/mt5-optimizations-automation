@@ -50,8 +50,10 @@ def extract_full_report_metrics(report_path: Path) -> dict[str, Any]:
 
     text = read_report_text(report_path)
     metrics: dict[str, str] = {}
+    # Do not cross </tr>: an empty Inputs <b></b> would otherwise steal the
+    # next row's value (Company) and drop the Company key entirely.
     for match in re.finditer(
-        r">([^<:]+):</td>\s*<td[^>]*>.*?<b>([^<]+)</b>",
+        r">([^<:]+):</td>\s*<td[^>]*>(?:(?!</tr>).)*?<b>([^<]+)</b>",
         text,
         re.S | re.I,
     ):

@@ -91,6 +91,21 @@ def test_generated_ea_rejects_unrecognised_set_parameter(tmp_path: Path) -> None
         generate_portfolio_ea(_manifest(1), sets_dir=tmp_path)
 
 
+def test_generated_ea_counts_trades_from_history_at_export() -> None:
+    source = generate_portfolio_ea(_manifest(2), sets_dir=_sets_dir())
+    assert "void RecountPortfolioTradesFromHistory()" in source
+    assert "RecountPortfolioTradesFromHistory();" in source
+    assert "HistorySelect(0, TimeCurrent())" in source
+    assert "DEAL_ENTRY_IN" in source
+    assert "DEAL_POSITION_ID" in source
+    assert "gPortfolioTradeCounts[matched]++;" in source
+    assert "gPortfolioTradeCounts[i]++;" not in source
+    assert (
+        "if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;" in source
+    )
+    assert "CapturePortfolioEquity();" in source
+
+
 def test_generated_ea_gates_disjoint_source_windows() -> None:
     base = _manifest(2)
     manifest = replace(

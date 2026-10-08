@@ -15,14 +15,29 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mt5_broker_identity import BrokerMismatchError, read_terminal_server, record_server_company
 from mt5_db_report import extract_full_report_metrics
 from mt5_deal_equity_sidecar import mt5_common_files_dir
 from mt5_opt_report import to_float
 from mt5_paths import DEFAULT_FAVORITES_DIR, resolve_terminal
 from mt5_portfolio_ea_generator import canonical_ea_revision, generate_portfolio_ea
 from mt5_portfolio_manifest import PortfolioManifest
+from mt5_portfolio_merge import resolve_favorite_company_for_portfolio
 from mt5_set_files import resolve_mt5_data_dir
 from mt5_workspace import PACKAGE_ROOT
+
+
+def _report_company(metrics: dict[str, str]) -> str | None:
+    for label in ("Company", "Broker", "Broker company"):
+        raw = metrics.get(label)
+        if isinstance(raw, str) and raw.strip():
+            return resolve_favorite_company_for_portfolio(raw)
+    lower_map = {key.lower(): value for key, value in metrics.items()}
+    for label in ("company", "broker", "broker company"):
+        raw = lower_map.get(label)
+        if isinstance(raw, str) and raw.strip():
+            return resolve_favorite_company_for_portfolio(raw)
+    return None
 
 
 @dataclass(frozen=True)
@@ -54,6 +69,14 @@ def parse_combined_portfolio_result(
     if report.get("format") != "html" or not isinstance(report.get("metrics"), dict):
         raise ValueError("Combined tester did not produce an HTML backtest report")
     metrics: dict[str, str] = report["metrics"]
+    report_company = _report_company(metrics)
+    if report_company is None:
+        raise ValueError("Combined tester report missing Company")
+    if report_company.casefold() != manifest.company.casefold():
+        raise BrokerMismatchError(
+            expected_company=manifest.company,
+            terminal_company=report_company,
+        )
     initial = _report_number(metrics, "Initial Deposit")
     profit = _report_number(metrics, "Total Net Profit")
     trades = _report_number(metrics, "Total Trades")
@@ -190,6 +213,7 @@ def run_combined_portfolio(manifest: PortfolioManifest) -> CombinedPortfolioResu
         portable=portable,
         mt5_data=os.environ.get("MT5_DATA") or None,
     )
+    terminal_server = read_terminal_server(data_dir)
     manifest_bytes = json.dumps(manifest.to_dict(), sort_keys=True).encode("utf-8")
     revision = canonical_ea_revision().encode("utf-8")
     fingerprint = hashlib.sha256(manifest_bytes + b"\0" + revision).hexdigest()[:16]
@@ -268,6 +292,14 @@ def run_combined_portfolio(manifest: PortfolioManifest) -> CombinedPortfolioResu
     if not export_path.is_file() or export_path.stat().st_mtime + 2.0 < started_at:
         raise ValueError("Combined tester did not write a fresh equity export")
     shutil.copy2(export_path, build_dir / export_file)
+    # Learn server→company from the report before verification so a mismatch
+    # still teaches the cache and later companies can pre-skip.
+    report_preview = extract_full_report_metrics(report_path)
+    preview_metrics = report_preview.get("metrics")
+    if isinstance(preview_metrics, dict) and terminal_server:
+        learned = _report_company(preview_metrics)
+        if learned is not None:
+            record_server_company(terminal_server, learned)
     return parse_combined_portfolio_result(
         manifest=manifest,
         report_path=report_path,

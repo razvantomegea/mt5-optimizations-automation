@@ -7,13 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from mt5_broker_identity import BrokerMismatchError
 from mt5_portfolio_combined import parse_combined_portfolio_result
 from mt5_portfolio_manifest import ManifestStrategy, PortfolioManifest
 
 
-def _manifest() -> PortfolioManifest:
+def _manifest(*, company: str = "FTMO") -> PortfolioManifest:
     return PortfolioManifest(
-        version=1, portfolio_id="favorites:ftmo", company="FTMO", server="FTMO",
+        version=1, portfolio_id="favorites:ftmo", company=company, server="FTMO",
         from_date="2026.09.14", to_date="2026.09.16", deposit=100000,
         currency="USD", leverage="1:33", tester_model=4,
         strategies=tuple(
@@ -28,8 +29,14 @@ def _manifest() -> PortfolioManifest:
     )
 
 
-def _write_artifacts(tmp_path: Path, **export_overrides: object) -> tuple[Path, Path]:
+def _write_artifacts(
+    tmp_path: Path,
+    *,
+    company: str = "FTMO",
+    **export_overrides: object,
+) -> tuple[Path, Path]:
     metrics = {
+        "Company": company,
         "Initial Deposit": "100 000.00",
         "Total Net Profit": "143.92",
         "Total Trades": "2",
@@ -109,3 +116,28 @@ def test_rejects_unverified_or_inconsistent_tester_export(
         parse_combined_portfolio_result(
             manifest=_manifest(), report_path=report, export_path=sidecar,
         )
+
+
+def test_rejects_report_company_mismatch(tmp_path: Path) -> None:
+    report, sidecar = _write_artifacts(
+        tmp_path, company="Pepperstone EU Limited",
+    )
+    with pytest.raises(BrokerMismatchError) as exc_info:
+        parse_combined_portfolio_result(
+            manifest=_manifest(company="Tradeslide Trading Tech Limited"),
+            report_path=report,
+            export_path=sidecar,
+        )
+    assert exc_info.value.expected_company == "Tradeslide Trading Tech Limited"
+    assert exc_info.value.terminal_company == "Pepperstone EU Limited"
+
+
+def test_accepts_matching_report_company_case_insensitive(tmp_path: Path) -> None:
+    report, sidecar = _write_artifacts(tmp_path, company="ftmo")
+    result = parse_combined_portfolio_result(
+        manifest=_manifest(company="FTMO"),
+        report_path=report,
+        export_path=sidecar,
+    )
+    assert result.payload["summary"]["validation_state"] == "verified"
+    assert result.payload["summary"]["company"] == "FTMO"

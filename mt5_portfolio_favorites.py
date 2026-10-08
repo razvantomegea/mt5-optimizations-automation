@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from mt5_broker_identity import BrokerMismatchError, resolve_terminal_company
 from mt5_env import load_repo_env
+from mt5_paths import resolve_terminal
 from mt5_portfolio_combined import run_combined_portfolio
 from mt5_portfolio_manifest import PortfolioManifestError, build_portfolio_manifest
 from mt5_portfolio_merge import (
@@ -21,6 +24,7 @@ from mt5_portfolio_merge import (
 )
 from mt5_position_relay_api import PositionRelayOptimizerApi
 from mt5_position_relay_auth import assert_optimizer_access
+from mt5_set_files import resolve_mt5_data_dir
 
 
 @dataclass(frozen=True)
@@ -224,6 +228,58 @@ def prepare_company_verified_portfolio(
     )
 
 
+def prepare_company_skipped_portfolio(
+    *,
+    company: str,
+    rows: list[dict[str, Any]],
+    reason: str,
+    terminal_company: str,
+) -> PreparedCompanyPortfolio:
+    """Summary-only skip: leave the existing snapshot untouched (no upsert)."""
+    resolved = resolve_favorite_company_for_portfolio(company)
+    portfolio_id = build_company_portfolio_id(resolved)
+    summary = {
+        "portfolio_id": portfolio_id,
+        "company": resolved,
+        "strategy_count": len(rows),
+        "total_trades": 0,
+        "final_balance": None,
+        "final_equity": None,
+        "max_equity_drawdown_relative_pct": 0.0,
+        "validation_state": "skipped",
+        "validation_failure_reason": reason,
+        "terminal_company": terminal_company,
+    }
+    return PreparedCompanyPortfolio(
+        portfolio_id=portfolio_id,
+        company=resolved,
+        payload={},
+        summary=summary,
+    )
+
+
+def _lookup_terminal_company() -> str | None:
+    """Best-effort: Server= from common.ini mapped through the learned cache."""
+    try:
+        terminal = resolve_terminal(required=False)
+        if terminal is None:
+            return None
+        portable = os.environ.get("MT5_PORTABLE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        data_dir = resolve_mt5_data_dir(
+            terminal=terminal,
+            portable=portable,
+            mt5_data=os.environ.get("MT5_DATA") or None,
+        )
+    except (FileNotFoundError, OSError, ValueError, RuntimeError):
+        return None
+    _server, company = resolve_terminal_company(data_dir)
+    return company
+
+
 def _prepare_company_or_unavailable(
     *,
     company: str,
@@ -231,6 +287,8 @@ def _prepare_company_or_unavailable(
 ) -> PreparedCompanyPortfolio:
     try:
         return prepare_company_verified_portfolio(company=company, rows=rows)
+    except BrokerMismatchError:
+        raise
     except (ValueError, RuntimeError) as exc:
         return prepare_company_unavailable_portfolio(
             company=company,
@@ -243,6 +301,10 @@ def refresh_has_unavailable(results: list[dict[str, Any]]) -> bool:
     return any(result.get("validation_state") == "unavailable" for result in results)
 
 
+def refresh_has_skipped(results: list[dict[str, Any]]) -> bool:
+    return any(result.get("validation_state") == "skipped" for result in results)
+
+
 def unavailable_refresh_error(results: list[dict[str, Any]]) -> str:
     reasons = [
         str(result.get("validation_failure_reason") or result.get("company") or "unknown")
@@ -252,6 +314,17 @@ def unavailable_refresh_error(results: list[dict[str, Any]]) -> str:
     if not reasons:
         return "Portfolio refresh left one or more companies unavailable"
     return "Portfolio unavailable: " + "; ".join(reasons)
+
+
+def skipped_refresh_error(results: list[dict[str, Any]]) -> str:
+    reasons = [
+        str(result.get("validation_failure_reason") or result.get("company") or "unknown")
+        for result in results
+        if result.get("validation_state") == "skipped"
+    ]
+    if not reasons:
+        return "Portfolio refresh skipped one or more companies"
+    return "Portfolio skipped: " + "; ".join(reasons)
 
 
 def build_company_favorites_portfolio(
@@ -276,6 +349,62 @@ def build_company_verified_portfolio(
     return prepared.summary
 
 
+def _should_skip_company(
+    *,
+    company: str,
+    terminal_company: str | None,
+) -> str | None:
+    """Return a skip reason when the terminal broker is known and differs."""
+    if terminal_company is None:
+        return None
+    resolved = resolve_favorite_company_for_portfolio(company)
+    if resolved.casefold() == terminal_company.casefold():
+        return None
+    return f"terminal on {terminal_company}"
+
+
+def _prepare_group_for_refresh(
+    group: FavoriteCompanyGroup,
+    *,
+    terminal_company: str | None,
+) -> tuple[PreparedCompanyPortfolio, str | None, bool]:
+    """Prepare one company. Returns (prepared, updated_terminal_company, upsert)."""
+    skip_reason = _should_skip_company(
+        company=group.company,
+        terminal_company=terminal_company,
+    )
+    if skip_reason is not None:
+        assert terminal_company is not None
+        return (
+            prepare_company_skipped_portfolio(
+                company=group.company,
+                rows=group.rows,
+                reason=skip_reason,
+                terminal_company=terminal_company,
+            ),
+            terminal_company,
+            False,
+        )
+    try:
+        prepared = _prepare_company_or_unavailable(
+            company=group.company,
+            rows=group.rows,
+        )
+        return prepared, terminal_company, True
+    except BrokerMismatchError as exc:
+        learned = resolve_favorite_company_for_portfolio(exc.terminal_company)
+        return (
+            prepare_company_skipped_portfolio(
+                company=group.company,
+                rows=group.rows,
+                reason=f"terminal on {learned}",
+                terminal_company=learned,
+            ),
+            learned,
+            False,
+        )
+
+
 def refresh_company_favorites_portfolios(
     api: PositionRelayOptimizerApi,
     *,
@@ -289,9 +418,13 @@ def refresh_company_favorites_portfolios(
 
     Missing reports / incompatible inputs produce an ``unavailable`` snapshot for
     that company so other companies can still publish verified metrics.
+
+    Companies whose broker differs from the terminal's current broker are
+    ``skipped`` (existing snapshot left untouched, portfolio id kept in reconcile).
     """
     rows = normalize_favorite_export_rows(api.get_favorites())
     grouped = group_favorites_by_company(rows)
+    terminal_company = _lookup_terminal_company()
 
     if company is not None:
         resolved = resolve_favorite_company_for_portfolio(company)
@@ -300,11 +433,12 @@ def refresh_company_favorites_portfolios(
         if match is None:
             api.clear_portfolio(portfolio_id=portfolio_id)
             return []
-        prepared = _prepare_company_or_unavailable(
-            company=match.company,
-            rows=match.rows,
+        prepared, _terminal, should_upsert = _prepare_group_for_refresh(
+            match,
+            terminal_company=terminal_company,
         )
-        api.upsert_portfolio(prepared.payload)
+        if should_upsert:
+            api.upsert_portfolio(prepared.payload)
         return [prepared.summary]
 
     if not rows:
@@ -314,15 +448,22 @@ def refresh_company_favorites_portfolios(
     # Build every replacement payload before any write. Input errors and MT5
     # runtime failures become unavailable snapshots so stale verified metrics
     # cannot linger; callers may still treat unavailable as a sync failure.
-    prepared = [
-        _prepare_company_or_unavailable(company=group.company, rows=group.rows)
-        for group in grouped
-    ]
+    # Broker mismatches skip (no upsert). A mismatch also teaches terminal_company
+    # so later groups can pre-skip without running the tester.
+    prepared_items: list[tuple[PreparedCompanyPortfolio, bool]] = []
+    current_terminal = terminal_company
+    for group in grouped:
+        prepared, current_terminal, should_upsert = _prepare_group_for_refresh(
+            group,
+            terminal_company=current_terminal,
+        )
+        prepared_items.append((prepared, should_upsert))
 
     results: list[dict[str, Any]] = []
     keep_ids: list[str] = []
-    for item in prepared:
-        api.upsert_portfolio(item.payload)
+    for item, should_upsert in prepared_items:
+        if should_upsert:
+            api.upsert_portfolio(item.payload)
         results.append(item.summary)
         keep_ids.append(item.portfolio_id)
 
@@ -369,6 +510,10 @@ def main(argv: list[str]) -> int:
     print(json.dumps(results if len(results) > 1 else results[0], indent=2))
     if refresh_has_unavailable(results):
         print(unavailable_refresh_error(results), file=sys.stderr)
+        return 1
+    # Explicit --company that was skipped is a hard failure so operators notice.
+    if args.company is not None and refresh_has_skipped(results):
+        print(skipped_refresh_error(results), file=sys.stderr)
         return 1
     return 0
 

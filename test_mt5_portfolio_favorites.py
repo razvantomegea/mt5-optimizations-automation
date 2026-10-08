@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mt5_broker_identity import BrokerMismatchError
 from mt5_portfolio_favorites import (
     build_company_favorites_portfolio,
     group_favorites_by_company,
@@ -22,6 +23,9 @@ from mt5_portfolio_merge import (
     build_company_portfolio_id,
     MergedPortfolio,
 )
+
+PEPPERSTONE = "Pepperstone EU Limited"
+PEPPERSTONE_PORTFOLIO_ID = build_company_portfolio_id(PEPPERSTONE)
 from portfolio_test_helpers import series, trade
 
 TRADESLIDE = MIGRATION_DEFAULT_COMPANY
@@ -244,11 +248,13 @@ def test_refresh_company_clears_only_that_portfolio_when_empty() -> None:
     api.reconcile_portfolios.assert_not_called()
 
 
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=None)
 @patch("mt5_portfolio_favorites.build_portfolio_manifest")
 @patch("mt5_portfolio_favorites.run_combined_portfolio")
 def test_refresh_prepares_all_before_upsert(
     combined_mock: MagicMock,
     manifest_mock: MagicMock,
+    _terminal: MagicMock,
 ) -> None:
     api = MagicMock()
     api.get_favorites.return_value = [
@@ -298,11 +304,13 @@ def test_refresh_prepares_all_before_upsert(
     assert first_upsert_order >= 0
 
 
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=None)
 @patch("mt5_portfolio_favorites.build_portfolio_manifest")
 @patch("mt5_portfolio_favorites.run_combined_portfolio")
 def test_refresh_marks_runtime_failures_unavailable_without_aborting_others(
     combined_mock: MagicMock,
     manifest_mock: MagicMock,
+    _terminal: MagicMock,
 ) -> None:
     api = MagicMock()
     api.get_favorites.return_value = [
@@ -346,11 +354,13 @@ def test_refresh_marks_runtime_failures_unavailable_without_aborting_others(
     api.reconcile_portfolios.assert_called_once()
 
 
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=None)
 @patch("mt5_portfolio_favorites.build_portfolio_manifest")
 @patch("mt5_portfolio_favorites.run_combined_portfolio")
 def test_refresh_marks_input_failures_unavailable_without_blocking_others(
     combined_mock: MagicMock,
     manifest_mock: MagicMock,
+    _terminal: MagicMock,
 ) -> None:
     api = MagicMock()
     api.get_favorites.return_value = [
@@ -398,9 +408,11 @@ def test_refresh_marks_input_failures_unavailable_without_blocking_others(
     api.reconcile_portfolios.assert_called_once()
 
 
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=None)
 @patch("mt5_portfolio_favorites.build_portfolio_manifest")
 def test_refresh_company_upserts_unavailable_for_input_errors(
     manifest_mock: MagicMock,
+    _terminal: MagicMock,
 ) -> None:
     api = MagicMock()
     api.get_favorites.return_value = [
@@ -424,6 +436,142 @@ def test_refresh_company_upserts_unavailable_for_input_errors(
     payload = api.upsert_portfolio.call_args.args[0]
     assert payload["summary"]["validation_state"] == "unavailable"
     assert payload["strategyIds"] == ["strategy-b"]
+
+
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=PEPPERSTONE)
+@patch("mt5_portfolio_favorites.build_portfolio_manifest")
+@patch("mt5_portfolio_favorites.run_combined_portfolio")
+def test_refresh_skips_known_other_broker_without_upsert(
+    combined_mock: MagicMock,
+    manifest_mock: MagicMock,
+    _terminal: MagicMock,
+) -> None:
+    api = MagicMock()
+    api.get_favorites.return_value = [
+        {
+            "id": "strategy-a",
+            "symbol": "EURUSD",
+            "timeframe": "M15",
+            "company": TRADESLIDE,
+            "summary": {"deposit": 100_000},
+            "parameters": {},
+            "equity_curve": [],
+        },
+        {
+            "id": "strategy-b",
+            "symbol": "GBPUSD",
+            "timeframe": "M15",
+            "company": PEPPERSTONE,
+            "summary": {"deposit": 100_000},
+            "parameters": {},
+            "equity_curve": [],
+        },
+    ]
+    manifest_mock.return_value = _manifest(company=PEPPERSTONE)
+    combined_mock.return_value = _verified_result(company=PEPPERSTONE)
+
+    results = refresh_company_favorites_portfolios(api)
+
+    assert len(results) == 2
+    skipped = next(r for r in results if r["company"] == TRADESLIDE)
+    verified = next(r for r in results if r["company"] == PEPPERSTONE)
+    assert skipped["validation_state"] == "skipped"
+    assert PEPPERSTONE in skipped["validation_failure_reason"]
+    assert verified.get("validation_state") is None
+    assert combined_mock.call_count == 1
+    api.upsert_portfolio.assert_called_once()
+    upserted = api.upsert_portfolio.call_args.args[0]
+    assert upserted["summary"]["company"] == PEPPERSTONE
+    api.reconcile_portfolios.assert_called_once_with(
+        keep_portfolio_ids=[PEPPERSTONE_PORTFOLIO_ID, TRADESLIDE_PORTFOLIO_ID],
+    )
+
+
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=None)
+@patch("mt5_portfolio_favorites.build_portfolio_manifest")
+@patch("mt5_portfolio_favorites.run_combined_portfolio")
+def test_refresh_broker_mismatch_skips_and_stops_later_runs(
+    combined_mock: MagicMock,
+    manifest_mock: MagicMock,
+    _terminal: MagicMock,
+) -> None:
+    api = MagicMock()
+    api.get_favorites.return_value = [
+        {
+            "id": "strategy-a",
+            "symbol": "EURUSD",
+            "timeframe": "M15",
+            "company": TRADESLIDE,
+            "summary": {"deposit": 100_000},
+            "parameters": {},
+            "equity_curve": [],
+        },
+        {
+            "id": "strategy-b",
+            "symbol": "GBPUSD",
+            "timeframe": "M15",
+            "company": "FTMO",
+            "summary": {"deposit": 100_000},
+            "parameters": {},
+            "equity_curve": [],
+        },
+    ]
+    # Groups sort by company casefold: FTMO then Tradeslide.
+    manifest_mock.side_effect = [
+        _manifest(company="FTMO"),
+        _manifest(company=TRADESLIDE),
+    ]
+    combined_mock.side_effect = [
+        BrokerMismatchError(
+            expected_company="FTMO",
+            terminal_company=PEPPERSTONE,
+        ),
+    ]
+
+    results = refresh_company_favorites_portfolios(api)
+
+    assert len(results) == 2
+    assert all(r["validation_state"] == "skipped" for r in results)
+    assert combined_mock.call_count == 1
+    api.upsert_portfolio.assert_not_called()
+    api.reconcile_portfolios.assert_called_once_with(
+        keep_portfolio_ids=[FTMO_PORTFOLIO_ID, TRADESLIDE_PORTFOLIO_ID],
+    )
+    for result in results:
+        assert result["validation_state"] == "skipped"
+        assert PEPPERSTONE in result["validation_failure_reason"]
+
+
+@patch("mt5_portfolio_favorites._lookup_terminal_company", return_value=PEPPERSTONE)
+@patch("mt5_portfolio_favorites.build_portfolio_manifest")
+@patch("mt5_portfolio_favorites.run_combined_portfolio")
+def test_refresh_matching_broker_runs_normally(
+    combined_mock: MagicMock,
+    manifest_mock: MagicMock,
+    _terminal: MagicMock,
+) -> None:
+    api = MagicMock()
+    api.get_favorites.return_value = [
+        {
+            "id": "strategy-b",
+            "symbol": "GBPUSD",
+            "timeframe": "M15",
+            "company": PEPPERSTONE,
+            "summary": {"deposit": 100_000},
+            "parameters": {},
+            "equity_curve": [],
+        },
+    ]
+    manifest_mock.return_value = _manifest(company=PEPPERSTONE)
+    combined_mock.return_value = _verified_result(company=PEPPERSTONE)
+
+    results = refresh_company_favorites_portfolios(api)
+
+    assert len(results) == 1
+    assert results[0]["company"] == PEPPERSTONE
+    assert results[0].get("validation_state") is None
+    combined_mock.assert_called_once()
+    api.upsert_portfolio.assert_called_once()
 
 
 @patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
@@ -496,6 +644,38 @@ def test_main_returns_error_when_refresh_raises(
 
     assert exit_code == 1
     assert "Could not resolve initial deposit" in capsys.readouterr().err
+
+
+@patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")
+@patch("mt5_portfolio_favorites.assert_optimizer_access")
+@patch("mt5_portfolio_favorites.refresh_company_favorites_portfolios")
+@patch("mt5_portfolio_favorites.load_repo_env")
+def test_main_returns_error_when_explicit_company_skipped(
+    _load_env: MagicMock,
+    refresh_mock: MagicMock,
+    _access: MagicMock,
+    from_env: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from_env.return_value = MagicMock()
+    refresh_mock.return_value = [
+        {
+            "portfolio_id": TRADESLIDE_PORTFOLIO_ID,
+            "company": TRADESLIDE,
+            "strategy_count": 1,
+            "total_trades": 0,
+            "validation_state": "skipped",
+            "validation_failure_reason": f"terminal on {PEPPERSTONE}",
+            "terminal_company": PEPPERSTONE,
+        }
+    ]
+
+    exit_code = main(["--company", TRADESLIDE])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "terminal on" in captured.err
+    assert json.loads(captured.out)["validation_state"] == "skipped"
 
 
 @patch("mt5_portfolio_favorites.PositionRelayOptimizerApi.from_env")

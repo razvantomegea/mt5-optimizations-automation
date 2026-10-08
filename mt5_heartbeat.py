@@ -233,6 +233,11 @@ class HeartbeatHost:
         for result in results:
             company = result.get("company") or result.get("portfolio_id")
             state = result.get("validation_state") or "verified"
+            if state == "skipped":
+                terminal = result.get("terminal_company") or "another broker"
+                reason = result.get("validation_failure_reason") or f"terminal on {terminal}"
+                log(f"Portfolio skipped ({company}): {reason}")
+                continue
             log(
                 f"Portfolio updated ({company}): "
                 f"{result['strategy_count']} strategies, "
