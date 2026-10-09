@@ -157,7 +157,7 @@ def default_param_file_paths(set_dir: Path) -> list[str]:
     return [str(path) for path in sorted(discover_set_files(set_dir).values())]
 
 DEFAULT_MIN_VALIDATION_CALMAR = 1.0
-DEFAULT_MAX_HOLDING_DAYS = 365.0
+DEFAULT_MAX_HOLDING_DAYS = 180
 DEFAULT_TARGET_EQUITY_DD = 15.0
 # Reject ceiling = target × 1.12 (float; keep 12% slack for small targets e.g. 4 → 4.48).
 DEFAULT_MAX_EQUITY_DD = round(DEFAULT_TARGET_EQUITY_DD * 1.12, 4)

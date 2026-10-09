@@ -186,7 +186,7 @@ def test_validation_passes_skips_holding_gate_when_none() -> None:
 
 
 def test_default_max_holding_days_is_one_year() -> None:
-    assert DEFAULT_MAX_HOLDING_DAYS == 365.0
+    assert DEFAULT_MAX_HOLDING_DAYS == 180
 
 
 def test_holding_period_reject_reason_uses_contract_token() -> None:
